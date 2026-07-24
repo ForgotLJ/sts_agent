@@ -1,0 +1,55 @@
+{
+  "latency": {
+    "clone": {
+      "count": 10000,
+      "max_us": 250.0,
+      "mean_us": 1.8131199999999998,
+      "p50_us": 1.7,
+      "p95_us": 1.9,
+      "p99_us": 3.0
+    },
+    "reset": {
+      "count": 1000,
+      "max_us": 112.4,
+      "mean_us": 22.4174,
+      "p50_us": 22.1,
+      "p95_us": 24.1,
+      "p99_us": 27.3
+    },
+    "serialize_json": {
+      "count": 5000,
+      "max_us": 670.8,
+      "mean_us": 133.8016,
+      "p50_us": 124.5,
+      "p95_us": 170.1,
+      "p99_us": 365.4
+    },
+    "step": {
+      "count": 20000,
+      "max_us": 527.7,
+      "mean_us": 39.06384,
+      "p50_us": 38.5,
+      "p95_us": 61.9,
+      "p99_us": 101.4
+    }
+  },
+  "system": {
+    "logical_cpu_count": 20,
+    "platform": "Windows-10-10.0.26100-SP0",
+    "python": "3.11.14 | packaged by Anaconda, Inc. | (main, Oct 21 2025, 18:30:03) [MSC v.1929 64 bit (AMD64)]"
+  },
+  "throughput": {
+    "multi_thread": {
+      "seconds": 4.644201600000088,
+      "steps": 50000,
+      "steps_per_second": 10766.113167869167,
+      "workers": 4
+    },
+    "single_thread": {
+      "seconds": 2.357110400000238,
+      "steps": 50000,
+      "steps_per_second": 21212.41330062222,
+      "workers": 1
+    }
+  }
+}

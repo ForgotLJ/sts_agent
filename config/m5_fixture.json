@@ -1,0 +1,54 @@
+{
+  "candidate_q": {
+    "batch_size": 32,
+    "damage_dealt_scale": 0.0,
+    "damage_taken_scale": 0.0,
+    "epsilon_decay_steps": 2500,
+    "epsilon_end": 0.05,
+    "epsilon_start": 1.0,
+    "gamma": 0.99,
+    "gradient_clip_norm": 5.0,
+    "hidden_sizes": [64, 32],
+    "learning_rate": 0.001,
+    "replay_capacity": 10000,
+    "step_penalty": 0.0,
+    "target_update_interval": 100,
+    "warmup_steps": 64
+  },
+  "experiment": {
+    "candidate_q_collection_chunk": 32,
+    "candidate_q_num_environments": 4,
+    "candidate_q_steps": 4000,
+    "candidate_q_train_every": 2,
+    "device": "cpu",
+    "distillation_updates": 600,
+    "evaluation_seed_count": 256,
+    "evaluation_seed_start": 1000000,
+    "max_episode_steps": 8,
+    "run_seeds": [17, 29, 43],
+    "search_call_budgets": [16, 64, 256],
+    "teacher_call_budget": 128,
+    "teacher_episodes": 128,
+    "training_seed_count": 10000,
+    "training_seed_start": 0
+  },
+  "policy_value": {
+    "batch_size": 64,
+    "entropy_weight": 0.0,
+    "gradient_clip_norm": 5.0,
+    "learning_rate": 0.001,
+    "policy_hidden_sizes": [64, 32],
+    "value_hidden_sizes": [64, 32],
+    "value_loss_weight": 1.0
+  },
+  "search": {
+    "chance_widening_coefficient": 2.0,
+    "chance_widening_exponent": 0.5,
+    "discount": 0.99,
+    "exploration": 1.5,
+    "max_depth": 6,
+    "rollout_depth": 0,
+    "simulations": 512,
+    "simulator_call_budget": null
+  }
+}

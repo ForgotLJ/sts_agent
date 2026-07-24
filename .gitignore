@@ -1,0 +1,17 @@
+.venv/
+*.egg-info/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+build/
+dist/
+server_assets/
+experiments/
+profile_output/
+
+*.log
+*.pid
+*.tmp
+.idea/
+.vscode/

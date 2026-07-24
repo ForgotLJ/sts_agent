@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sts-learning-agent"
+version = "0.1.0"
+description = "Simulator-agnostic training environment for a Slay the Spire learning agent"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+training = [
+    "tensorboard>=2.21",
+    "torch>=2.5",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

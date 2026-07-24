@@ -1,0 +1,33 @@
+{
+  "experiment": {
+    "collection_chunk": 32,
+    "device": "cpu",
+    "evaluation_seed_count": 256,
+    "evaluation_seed_start": 1000000,
+    "max_episode_steps": 500,
+    "num_environments": 8,
+    "run_seeds": [17, 29, 43],
+    "save_replay_jsonl": false,
+    "total_steps": 8000,
+    "train_every": 4,
+    "training_seed_count": 20000,
+    "training_seed_start": 0,
+    "updates_per_train": 1
+  },
+  "trainer": {
+    "batch_size": 64,
+    "damage_dealt_scale": 0.03,
+    "damage_taken_scale": -0.04,
+    "epsilon_decay_steps": 15000,
+    "epsilon_end": 0.05,
+    "epsilon_start": 1.0,
+    "gamma": 0.97,
+    "gradient_clip_norm": 5.0,
+    "hidden_sizes": [256, 128],
+    "learning_rate": 0.0003,
+    "replay_capacity": 50000,
+    "step_penalty": -0.002,
+    "target_update_interval": 250,
+    "warmup_steps": 512
+  }
+}

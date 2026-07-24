@@ -1,0 +1,77 @@
+{
+  "experiment": {
+    "checkpoint_interval": 25,
+    "device": "cuda",
+    "num_environments": 16,
+    "rollout_steps": 64,
+    "run_seeds": [17, 29, 43],
+    "total_updates": 5000,
+    "training_seed_count": 1000000,
+    "training_seed_start": 0,
+    "validation_interval": 25,
+    "validation_seed_count": 2048,
+    "validation_seed_start": 1100000
+  },
+  "ppo": {
+    "action_embedding_size": 128,
+    "clip_ratio": 0.2,
+    "entropy_weight": 0.1,
+    "gae_lambda": 0.95,
+    "gamma": 0.997,
+    "gradient_clip_norm": 1.0,
+    "learning_rate": 0.0003,
+    "minibatch_environments": 8,
+    "recurrent_size": 128,
+    "state_embedding_size": 128,
+    "update_epochs": 4,
+    "uniform_exploration_weight": 0.02,
+    "value_clip": 0.2,
+    "value_loss_weight": 0.5
+  },
+  "curriculum": {
+    "max_episode_steps": 1000,
+    "promotion_threshold": 0.25,
+    "stage_promotion_thresholds": {
+      "act2_clear": 0.05,
+      "act3_clear": 0.015625
+    },
+    "validation_episodes": 64
+  },
+  "dagger": {
+    "enabled": true,
+    "interval_updates": 25,
+    "rounds": 2,
+    "stage_rounds": {
+      "full_run": 2
+    },
+    "episodes": 64,
+    "max_steps": 1000,
+    "chunk_length": 64,
+    "burn_in_steps": 16,
+    "epochs": 3,
+    "training_seed_offset": 30000,
+    "round_seed_stride": 100000,
+    "card_reward_weight": 1.0,
+    "event_weight": 1.0,
+    "map_weight": 3.0,
+    "rest_site_weight": 2.0,
+    "shop_weight": 4.0
+  },
+  "self_imitation": {
+    "enabled": true,
+    "minimum_traces": 4,
+    "maximum_traces": 64,
+    "maximum_candidate_traces": 16,
+    "frontier_trace_repeats": 4,
+    "chunk_length": 64,
+    "burn_in_steps": 16,
+    "epochs": 1,
+    "corpus_capacity": 64,
+    "interval_updates": 5
+  },
+  "parameter_ema": {
+    "enabled": true,
+    "decay": 0.998,
+    "stages": ["full_run"]
+  }
+}

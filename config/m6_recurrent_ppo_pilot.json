@@ -1,0 +1,36 @@
+{
+  "experiment": {
+    "checkpoint_interval": 10,
+    "device": "cuda",
+    "num_environments": 16,
+    "rollout_steps": 64,
+    "run_seeds": [17, 29, 43],
+    "total_updates": 600,
+    "training_seed_count": 1000000,
+    "training_seed_start": 0,
+    "validation_interval": 20,
+    "validation_seed_count": 2048,
+    "validation_seed_start": 1100000
+  },
+  "ppo": {
+    "action_embedding_size": 128,
+    "clip_ratio": 0.2,
+    "entropy_weight": 0.1,
+    "gae_lambda": 0.95,
+    "gamma": 0.997,
+    "gradient_clip_norm": 1.0,
+    "learning_rate": 0.0003,
+    "minibatch_environments": 8,
+    "recurrent_size": 128,
+    "state_embedding_size": 128,
+    "update_epochs": 4,
+    "uniform_exploration_weight": 0.02,
+    "value_clip": 0.2,
+    "value_loss_weight": 0.5
+  },
+  "curriculum": {
+    "max_episode_steps": 1000,
+    "promotion_threshold": 0.6,
+    "validation_episodes": 16
+  }
+}

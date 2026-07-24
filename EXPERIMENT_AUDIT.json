@@ -1,0 +1,49 @@
+{
+  "date": "2026-07-17",
+  "auditor": "independent-external-agent-xhigh-read-only",
+  "overall_verdict": "warn",
+  "integrity_status": "warn",
+  "checks": {
+    "gt_provenance": {
+      "status": "pass",
+      "details": "Full-run outcomes come from the local simulator; proxy_score is explicitly environment-derived."
+    },
+    "score_normalization": {
+      "status": "pass",
+      "details": "No normalization uses model-output statistics; 7168 episode summaries were recomputed without mismatch."
+    },
+    "result_existence": {
+      "status": "warn",
+      "details": "Files and reported numbers match, but the update-700 Act-2-clear narrative is not reconstructible from stored metrics, DAgger selection used an ineligible pilot, and game_score is unavailable."
+    },
+    "dead_code": {
+      "status": "pass",
+      "details": "Evaluation, confidence interval, paired bootstrap, and aggregation functions are exercised."
+    },
+    "scope": {
+      "status": "warn",
+      "details": "Only Ironclad A0 simulation diagnostics for run seed 17 exist; formal runs, final seeds, and baseline coverage are pending."
+    },
+    "eval_type": "simulation_only"
+  },
+  "integrity_controls": {
+    "final_seed_protection": "warn",
+    "checkpoint_freeze": "warn",
+    "method_labeling": "warn",
+    "validation_reuse": "warn"
+  },
+  "claims": [
+    {
+      "id": "diagnostic_first_win",
+      "impact": "supported_with_validation_only_qualifier"
+    },
+    {
+      "id": "ema_interpolation_stabilization",
+      "impact": "supported_with_selection_bias_qualifier"
+    },
+    {
+      "id": "m6_complete",
+      "impact": "unsupported"
+    }
+  ]
+}
