@@ -31,6 +31,9 @@ class ServerPipelineTests(unittest.TestCase):
         cls.importer = load_script(
             "import_m6_server_assets_test", "scripts/import-m6-server-assets.py"
         )
+        cls.check_lightspeed = load_script(
+            "check_lightspeed_server_test", "scripts/check-lightspeed.py"
+        )
 
     def test_resource_profiles_scale_orchestration_without_changing_formal_config(self) -> None:
         conservative = self.pipeline.resource_defaults("conservative", 36)
@@ -89,6 +92,19 @@ class ServerPipelineTests(unittest.TestCase):
             verified = self.importer.verify_assets(root)
 
         self.assertEqual(verified["schema_version"], 1)
+
+    def test_lightspeed_check_accepts_linux_extension_suffix(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            build_directory = Path(temporary_directory)
+            extension = build_directory / "slaythespire.cpython-311-x86_64-linux-gnu.so"
+            extension.touch()
+
+            modules = self.check_lightspeed.find_extension_modules(
+                build_directory,
+                suffixes=(".so",),
+            )
+
+        self.assertEqual(modules, [extension])
 
 
 if __name__ == "__main__":

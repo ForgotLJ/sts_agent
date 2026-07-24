@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+from importlib.machinery import EXTENSION_SUFFIXES
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,19 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BUILD_DIR = PROJECT_ROOT / "build" / "sts_lightspeed-py311"
+
+
+def find_extension_modules(
+    build_dir: Path,
+    suffixes: tuple[str, ...] = tuple(EXTENSION_SUFFIXES),
+) -> list[Path]:
+    return sorted(
+        {
+            path
+            for suffix in suffixes
+            for path in build_dir.glob(f"slaythespire*{suffix}")
+        }
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -144,7 +158,7 @@ def check_seed_determinism(seed_count: int) -> tuple[float, str]:
 
 def main() -> int:
     args = parse_args()
-    modules = list(BUILD_DIR.glob("slaythespire*.pyd"))
+    modules = find_extension_modules(BUILD_DIR)
     if len(modules) != 1:
         raise FileNotFoundError(f"expected exactly one slaythespire extension in {BUILD_DIR}, found {len(modules)}")
 
