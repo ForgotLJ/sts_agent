@@ -1,0 +1,93 @@
+{
+  "protocol": "m7",
+  "experiment": {
+    "checkpoint_interval": 25,
+    "device": "cuda",
+    "full_run_updates": 1000,
+    "max_curriculum_updates": 5000,
+    "num_environments": 16,
+    "pilot_gate_seed_count": 512,
+    "pilot_gate_seed_start": 1400000,
+    "promotion_seed_count": 128,
+    "promotion_seed_start": 1200000,
+    "rollout_steps": 64,
+    "run_seeds": [17, 29, 43],
+    "screening_batch_size": 128,
+    "screening_seed_count": 1024,
+    "screening_seed_start": 1210000,
+    "selection_combat_policy": "heuristic",
+    "selection_interval": 250,
+    "selection_search_budget": 64,
+    "selection_seed_count": 512,
+    "selection_seed_start": 1300000,
+    "training_seed_count": 1000000,
+    "training_seed_start": 0,
+    "validation_interval": 25
+  },
+  "ppo": {
+    "action_embedding_size": 128,
+    "clip_ratio": 0.2,
+    "entropy_weight": 0.1,
+    "gae_lambda": 0.95,
+    "gamma": 0.997,
+    "gradient_clip_norm": 1.0,
+    "learning_rate": 0.0003,
+    "minibatch_environments": 8,
+    "recurrent_size": 128,
+    "state_embedding_size": 128,
+    "uniform_exploration_weight": 0.02,
+    "update_epochs": 4,
+    "value_clip": 0.2,
+    "value_loss_weight": 0.5
+  },
+  "curriculum": {
+    "max_episode_steps": 1000,
+    "promotion_threshold": 0.25,
+    "start_stage": "full_run",
+    "stage_promotion_thresholds": {
+      "act2_clear": 0.05,
+      "act3_clear": 0.015625
+    }
+  },
+  "dagger": {
+    "burn_in_steps": 16,
+    "card_reward_weight": 1.0,
+    "chunk_length": 64,
+    "enabled": true,
+    "episodes": 64,
+    "epochs": 3,
+    "event_weight": 1.0,
+    "interval_updates": 25,
+    "map_weight": 3.0,
+    "max_steps": 1000,
+    "rest_site_weight": 2.0,
+    "round_seed_stride": 100000,
+    "rounds": 2,
+    "shop_weight": 4.0,
+    "stage_rounds": {
+      "full_run": 2
+    },
+    "training_seed_offset": 30000
+  },
+  "self_imitation": {
+    "burn_in_steps": 16,
+    "chunk_length": 64,
+    "corpus_capacity": 64,
+    "enabled": true,
+    "epochs": 1,
+    "frontier_trace_repeats": 4,
+    "interval_updates": 5,
+    "maximum_candidate_traces": 16,
+    "maximum_traces": 64,
+    "minimum_traces": 4
+  },
+  "parameter_ema": {
+    "decay": 0.998,
+    "enabled": true,
+    "stages": ["full_run"]
+  },
+  "phase_balance": {
+    "enabled": false,
+    "maximum_multiplier": 4.0
+  }
+}

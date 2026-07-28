@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 import json
 import random
 from typing import Callable
@@ -109,6 +109,7 @@ class ImitationChunk:
     action_masks: torch.Tensor
     chosen_actions: torch.Tensor
     supervision_weights: torch.Tensor
+    supervision_phases: torch.Tensor | None = None
 
 
 def build_imitation_chunks(
@@ -193,6 +194,10 @@ def build_imitation_chunks(
                     action_masks=mask,
                     chosen_actions=torch.tensor(chosen[context_start:stop], dtype=torch.long),
                     supervision_weights=weights,
+                    supervision_phases=torch.tensor(
+                        [tuple(Phase).index(phase) for phase in phases[context_start:stop]],
+                        dtype=torch.long,
+                    ),
                 )
             )
     return tuple(chunks)
@@ -272,6 +277,7 @@ def collect_dagger_chunks(
         actions: list[torch.Tensor] = []
         chosen: list[int] = []
         weights: list[float] = []
+        phases: list[Phase] = []
         for _ in range(max_steps):
             policy = trainer.sample_actions((observation,), hidden, deterministic=True)
             student_index = int(policy.action_indices[0])
@@ -286,6 +292,7 @@ def collect_dagger_chunks(
                 policy.action_features[0, : len(observation.legal_actions)].detach().cpu()
             )
             chosen.append(teacher_index)
+            phases.append(observation.phase)
             if observation.phase is Phase.COMBAT or len(observation.legal_actions) <= 1:
                 weights.append(0.0)
             else:
@@ -322,9 +329,75 @@ def collect_dagger_chunks(
                         dtype=torch.long,
                     ),
                     supervision_weights=chunk_weights,
+                    supervision_phases=torch.tensor(
+                        [
+                            tuple(Phase).index(phase)
+                            for phase in phases[context_start:stop]
+                        ],
+                        dtype=torch.long,
+                    ),
                 )
             )
     return tuple(chunks)
+
+
+def balance_imitation_phase_weights(
+    chunks: tuple[ImitationChunk, ...],
+    *,
+    maximum_multiplier: float = 4.0,
+) -> tuple[ImitationChunk, ...]:
+    if not chunks or maximum_multiplier < 1:
+        raise ValueError("phase balancing requires chunks and a multiplier of at least one")
+    phase_totals: dict[int, float] = {}
+    for chunk in chunks:
+        if chunk.supervision_phases is None:
+            raise ValueError("phase balancing requires phase-annotated chunks")
+        for phase_index in torch.unique(chunk.supervision_phases):
+            index = int(phase_index)
+            mask = chunk.supervision_phases == index
+            weight = float(chunk.supervision_weights[mask].sum().item())
+            if weight > 0:
+                phase_totals[index] = phase_totals.get(index, 0.0) + weight
+    if not phase_totals:
+        raise ValueError("phase balancing found no supervised steps")
+    target = sum(phase_totals.values()) / len(phase_totals)
+    minimum_multiplier = 1.0 / maximum_multiplier
+    multipliers = {
+        phase_index: min(
+            maximum_multiplier,
+            max(minimum_multiplier, target / total),
+        )
+        for phase_index, total in phase_totals.items()
+    }
+    balanced = []
+    for chunk in chunks:
+        assert chunk.supervision_phases is not None
+        weights = chunk.supervision_weights.clone()
+        for phase_index, multiplier in multipliers.items():
+            weights[chunk.supervision_phases == phase_index] *= multiplier
+        balanced.append(replace(chunk, supervision_weights=weights))
+    return tuple(balanced)
+
+
+def imitation_phase_coverage(
+    chunks: tuple[ImitationChunk, ...],
+) -> dict[str, dict[str, float]]:
+    coverage: dict[str, dict[str, float]] = {}
+    phases = tuple(Phase)
+    for chunk in chunks:
+        if chunk.supervision_phases is None:
+            raise ValueError("phase coverage requires phase-annotated chunks")
+        for phase_index in torch.unique(chunk.supervision_phases):
+            index = int(phase_index)
+            mask = chunk.supervision_phases == index
+            supervised = mask & chunk.supervision_weights.bool()
+            if not supervised.any():
+                continue
+            name = phases[index].value
+            entry = coverage.setdefault(name, {"steps": 0.0, "weight": 0.0})
+            entry["steps"] += float(torch.count_nonzero(supervised).item())
+            entry["weight"] += float(chunk.supervision_weights[supervised].sum().item())
+    return dict(sorted(coverage.items()))
 
 
 def dagger_training_seeds(
