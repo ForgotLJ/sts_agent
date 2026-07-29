@@ -72,7 +72,15 @@ git rev-parse HEAD
 EXTENSION=$(find "$ROOT/build" -type f -name 'slaythespire*.so' -print -quit)
 test -n "$EXTENSION"
 EXTENSION_DIR=$(dirname "$EXTENSION")
-export PYTHONPATH="$WORKTREE/src:$EXTENSION_DIR"
+WORKTREE_EXTENSION="$WORKTREE/build/$(basename "$EXTENSION_DIR")"
+mkdir -p "$WORKTREE/build"
+if test -e "$WORKTREE_EXTENSION" || test -L "$WORKTREE_EXTENSION"; then
+  test -L "$WORKTREE_EXTENSION"
+  test "$(readlink -f "$WORKTREE_EXTENSION")" = "$EXTENSION_DIR"
+else
+  ln -s "$EXTENSION_DIR" "$WORKTREE_EXTENSION"
+fi
+export PYTHONPATH="$WORKTREE/src:$WORKTREE_EXTENSION"
 export PYTHONDONTWRITEBYTECODE=1
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
@@ -91,7 +99,9 @@ nvidia-smi
 ```
 
 All tests must pass. CUDA, the native extension, or test failure is a hard
-stop. Do not fall back to CPU for the formal training phase.
+stop. The verified symlink keeps the shared native build outside the Git
+worktree while allowing runtime manifests to hash the exact loaded extension.
+Do not fall back to CPU for the formal training phase.
 
 ## Import Frozen Inputs
 
