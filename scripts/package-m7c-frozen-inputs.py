@@ -36,6 +36,12 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def write_checksum_sidecar(output: Path, checksum: str) -> Path:
+    checksum_path = output.with_name(output.name + ".sha256")
+    checksum_path.write_bytes(f"{checksum}  {output.name}\n".encode("ascii"))
+    return checksum_path
+
+
 def main() -> int:
     args = parse_args()
     manifest = build_m7c_frozen_inputs_manifest(
@@ -75,8 +81,7 @@ def main() -> int:
                     recursive=False,
                 )
     checksum = sha256_file(output)
-    checksum_path = output.with_name(output.name + ".sha256")
-    checksum_path.write_text(f"{checksum}  {output.name}\n", encoding="ascii")
+    checksum_path = write_checksum_sidecar(output, checksum)
     print(
         json.dumps(
             {

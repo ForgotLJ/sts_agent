@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 import shutil
@@ -23,6 +24,17 @@ from sts_env.training.m7c_inputs import (
     safe_relative_path,
     verify_m7c_frozen_inputs,
 )
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PACKAGE_SPEC = importlib.util.spec_from_file_location(
+    "package_m7c_frozen_inputs_test",
+    PROJECT_ROOT / "scripts" / "package-m7c-frozen-inputs.py",
+)
+if PACKAGE_SPEC is None or PACKAGE_SPEC.loader is None:
+    raise RuntimeError("unable to load M7-C packaging script")
+PACKAGE_M7C = importlib.util.module_from_spec(PACKAGE_SPEC)
+PACKAGE_SPEC.loader.exec_module(PACKAGE_M7C)
 
 
 class FivePhaseEnvironment:
@@ -88,6 +100,17 @@ class FivePhaseEnvironment:
 
 
 class M7CFrozenInputsTests(unittest.TestCase):
+    def test_checksum_sidecar_uses_linux_compatible_line_endings(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / "inputs.tar.gz"
+            archive.write_bytes(b"fixture")
+            sidecar = PACKAGE_M7C.write_checksum_sidecar(archive, "a" * 64)
+
+            payload = sidecar.read_bytes()
+
+        self.assertEqual(payload, ("a" * 64 + "  inputs.tar.gz\n").encode("ascii"))
+        self.assertNotIn(b"\r", payload)
+
     def test_build_and_verify_relocated_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
