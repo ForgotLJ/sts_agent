@@ -45,6 +45,9 @@ with the heuristic policy and aggregates them across rounds.
   A substituted corpus, even with the same schema, is rejected at start and on
   resume.
 - All checkpoints, corpus manifests, and replay caches are written atomically.
+- The independent teacher-state anchor is collected deterministically with a
+  `5000`-decision horizon. The horizon is recorded in every trace and in the
+  corpus manifest; formal training rejects a missing or different value.
 
 ## Pre-registered Data Split
 
@@ -62,6 +65,13 @@ The three collection rounds use teacher mixing probabilities 0.50, 0.25, and
 0.00. Combat stays delegated to the same heuristic used by M7-B, while all
 non-combat behavior is selected by the current student unless a round's
 pre-registered teacher mixing decision is taken.
+
+The first anchor attempt used the collector default of `1000` decisions and
+failed at seed `2210169`; it produced no manifest and was never used for
+training, selection, or evaluation. Its incomplete directory is retained for
+audit only. The same pre-registered 512-seed range must be recollected from
+scratch in a distinct `teacher-anchor-5000` directory with the fixed
+`5000`-decision horizon before any formal DAgger round begins.
 
 The collector is resumable and only accepts the named pre-registered range:
 

@@ -345,6 +345,49 @@ class M7BDistillationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "differs"):
                 verify_m7b_corpus_manifest(manifest_path)
 
+    def test_corpus_manifest_binds_collection_horizon(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_corpus(root, 10, 2)
+            legacy_manifest = build_m7b_corpus_manifest(
+                root,
+                seed_start=10,
+                seed_count=2,
+            )
+            legacy_manifest_path = root / "legacy-manifest.json"
+            legacy_manifest_path.write_text(
+                json.dumps(legacy_manifest),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "collection horizon"):
+                verify_m7b_corpus_manifest(
+                    legacy_manifest_path,
+                    expected_collection_max_steps=10,
+                )
+
+            manifest = build_m7b_corpus_manifest(
+                root,
+                seed_start=10,
+                seed_count=2,
+                collection_max_steps=10,
+            )
+            manifest_path = root / "manifest.json"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            verified = verify_m7b_corpus_manifest(
+                manifest_path,
+                expected_collection_max_steps=10,
+            )
+            self.assertEqual(verified["collection_max_steps"], 10)
+
+            manifest["collection_max_steps"] = 11
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "collection horizon"):
+                verify_m7b_corpus_manifest(
+                    manifest_path,
+                    expected_collection_max_steps=11,
+                )
+
     def test_corpus_manifest_relocates_with_its_trace_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "source"

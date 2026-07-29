@@ -180,6 +180,7 @@ def record_m7b_teacher_trace(
                 backend=str(reset_info.get("backend", "unknown")),
                 metadata={
                     "protocol": "m7b-teacher",
+                    "collection_max_steps": max_steps,
                     "phase_supervision_counts": phase_counts,
                     "final_act": observation.act,
                     "final_floor": observation.floor,
@@ -195,10 +196,16 @@ def build_m7b_corpus_manifest(
     *,
     seed_start: int,
     seed_count: int,
+    collection_max_steps: int | None = None,
 ) -> dict[str, Any]:
     root = Path(corpus_directory).resolve()
     traces_root = root / "traces"
-    if seed_start < 0 or seed_count <= 0 or not traces_root.is_dir():
+    if (
+        seed_start < 0
+        or seed_count <= 0
+        or (collection_max_steps is not None and collection_max_steps <= 0)
+        or not traces_root.is_dir()
+    ):
         raise ValueError("M7-B corpus manifest arguments are invalid")
     aggregate = hashlib.sha256()
     entries = []
@@ -213,6 +220,12 @@ def build_m7b_corpus_manifest(
         if trace.seed != seed or (trace.metadata or {}).get("protocol") != "m7b-teacher":
             raise ValueError(f"invalid M7-B teacher trace: {path}")
         metadata = dict(trace.metadata or {})
+        if (
+            collection_max_steps is not None
+            and int(metadata.get("collection_max_steps", -1))
+            != collection_max_steps
+        ):
+            raise ValueError(f"M7-B trace has the wrong collection horizon: {path}")
         trace_phase_counts = {
             str(name): int(count)
             for name, count in dict(
@@ -245,7 +258,7 @@ def build_m7b_corpus_manifest(
         final_floors.append(int(metadata.get("final_floor", 0)))
     if any(count <= 0 for count in phase_counts.values()):
         raise ValueError("M7-B corpus lacks one or more supervised phases")
-    return {
+    manifest = {
         "protocol": "m7b-teacher-corpus",
         "schema_version": 1,
         "complete": True,
@@ -259,6 +272,9 @@ def build_m7b_corpus_manifest(
         "mean_final_floor": sum(final_floors) / len(final_floors),
         "files": entries,
     }
+    if collection_max_steps is not None:
+        manifest["collection_max_steps"] = collection_max_steps
+    return manifest
 
 
 def verify_m7b_corpus_manifest(
@@ -266,6 +282,7 @@ def verify_m7b_corpus_manifest(
     *,
     expected_seed_start: int | None = None,
     expected_seed_count: int | None = None,
+    expected_collection_max_steps: int | None = None,
 ) -> dict[str, Any]:
     path = Path(manifest_path).resolve()
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -281,6 +298,16 @@ def verify_m7b_corpus_manifest(
         raise ValueError("M7-B corpus starts at the wrong seed")
     if expected_seed_count is not None and seed_range[1] - seed_range[0] + 1 != expected_seed_count:
         raise ValueError("M7-B corpus has the wrong seed count")
+    declared_collection_max_steps = payload.get("collection_max_steps")
+    if declared_collection_max_steps is not None:
+        declared_collection_max_steps = int(declared_collection_max_steps)
+        if declared_collection_max_steps <= 0:
+            raise ValueError("M7-B corpus has an invalid collection horizon")
+    if expected_collection_max_steps is not None:
+        if expected_collection_max_steps <= 0:
+            raise ValueError("M7-B expected collection horizon must be positive")
+        if declared_collection_max_steps != expected_collection_max_steps:
+            raise ValueError("M7-B corpus has the wrong collection horizon")
     declared_root = Path(str(payload["root"]))
     root = declared_root if declared_root.is_dir() else path.parent
     if not (root / "traces").is_dir():
@@ -291,14 +318,16 @@ def verify_m7b_corpus_manifest(
         root,
         seed_start=seed_range[0],
         seed_count=seed_range[1] - seed_range[0] + 1,
+        collection_max_steps=declared_collection_max_steps,
     )
     for key in (
         "aggregate_sha256",
         "trace_count",
         "phase_supervision_counts",
         "seed_range",
+        "collection_max_steps",
     ):
-        if rebuilt[key] != payload.get(key):
+        if key in rebuilt and rebuilt[key] != payload.get(key):
             raise ValueError(f"M7-B corpus differs from its manifest: {key}")
     payload["root"] = str(root.resolve())
     return payload

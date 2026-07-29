@@ -5,6 +5,7 @@ import importlib.util
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 from sts_env.training import RecurrentPPOConfig, RecurrentPPOTrainer
 from sts_env.training.m7c_training import (
@@ -215,6 +216,44 @@ class M7CDaggerTrainingTests(unittest.TestCase):
                     round_index=0,
                     smoke=True,
                 )
+
+    def test_configuration_rejects_wrong_teacher_anchor_horizon(self) -> None:
+        train_script = load_script(
+            "train_m7c_anchor_horizon_configuration_test",
+            "scripts/train-m7c-dagger.py",
+        )
+        configuration_path = PROJECT_ROOT / "config" / "m7c_dagger_control.json"
+        payload = __import__("json").loads(configuration_path.read_text(encoding="utf-8"))
+        payload["experiment"]["teacher_anchor_max_steps"] = 1_000
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "invalid-config.json"
+            path.write_text(__import__("json").dumps(payload), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "teacher anchor horizon"):
+                train_script.load_configuration(
+                    path,
+                    run_seed=17,
+                    round_index=0,
+                    smoke=True,
+                )
+
+    def test_teacher_anchor_manifest_requires_configured_horizon(self) -> None:
+        train_script = load_script(
+            "train_m7c_anchor_manifest_test",
+            "scripts/train-m7c-dagger.py",
+        )
+        with mock.patch.object(
+            train_script,
+            "verify_m7b_corpus_manifest",
+            return_value={"collection_max_steps": 5_000},
+        ) as verify:
+            train_script.resolve_teacher_anchor_manifest(
+                "teacher_anchor=/tmp/anchor-manifest.json",
+                expected_collection_max_steps=5_000,
+            )
+        self.assertEqual(
+            verify.call_args.kwargs["expected_collection_max_steps"],
+            5_000,
+        )
 
     def test_formal_round_initialization_is_frozen(self) -> None:
         train_script = load_script(

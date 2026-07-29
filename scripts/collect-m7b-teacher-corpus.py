@@ -54,9 +54,14 @@ def collect_one(seed: int, destination: Path, max_steps: int) -> dict[str, Any]:
     }
 
 
-def validate_existing_trace(path: Path, seed: int) -> None:
+def validate_existing_trace(path: Path, seed: int, max_steps: int) -> None:
     trace = EpisodeTrace.read_jsonl(path)
-    if trace.seed != seed or (trace.metadata or {}).get("protocol") != "m7b-teacher":
+    metadata = dict(trace.metadata or {})
+    if (
+        trace.seed != seed
+        or metadata.get("protocol") != "m7b-teacher"
+        or int(metadata.get("collection_max_steps", -1)) != max_steps
+    ):
         raise ValueError(f"invalid existing M7-B trace: {path}")
 
 
@@ -78,7 +83,7 @@ def main() -> int:
     for seed in range(args.seed_start, args.seed_start + args.seed_count):
         path = traces_directory / f"seed-{seed:08d}.jsonl"
         if path.is_file():
-            validate_existing_trace(path, seed)
+            validate_existing_trace(path, seed, args.max_steps)
             reused += 1
         else:
             pending.append((seed, path))
@@ -119,6 +124,7 @@ def main() -> int:
         "protocol": "m7b-teacher-collection",
         "complete": not errors,
         "seed_range": [args.seed_start, args.seed_start + args.seed_count - 1],
+        "max_steps": args.max_steps,
         "requested": args.seed_count,
         "reused": reused,
         "collected": len(completed),
@@ -137,6 +143,7 @@ def main() -> int:
         args.output,
         seed_start=args.seed_start,
         seed_count=args.seed_count,
+        collection_max_steps=args.max_steps,
     )
     (args.output / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",

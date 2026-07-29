@@ -52,6 +52,7 @@ from sts_env.training.m7c_dagger import (
 )
 from sts_env.training.self_imitation import build_imitation_chunks
 from sts_env.training.m7c_protocol import (
+    M7C_TEACHER_ANCHOR_MAX_STEPS,
     m7c_frozen_inputs_identity,
     m7c_seed_registry,
     require_registered_seed_range,
@@ -141,6 +142,11 @@ def load_configuration(
     ):
         raise ValueError("M7-C config differs from the frozen input protocol")
     experiment_payload = dict(payload["experiment"])
+    teacher_anchor_max_steps = int(
+        experiment_payload.get("teacher_anchor_max_steps", -1)
+    )
+    if teacher_anchor_max_steps != M7C_TEACHER_ANCHOR_MAX_STEPS:
+        raise ValueError("M7-C teacher anchor horizon differs from the protocol")
     run_seeds = tuple(int(seed) for seed in experiment_payload["run_seeds"])
     mixing = tuple(float(value) for value in experiment_payload["teacher_mix_probabilities"])
     training_ranges = tuple(
@@ -210,6 +216,7 @@ def load_configuration(
             int(value)
             for value in experiment_payload["teacher_anchor_validation_seed_range"]
         ),
+        "teacher_anchor_max_steps": teacher_anchor_max_steps,
         "on_policy_validation_seed_ranges": validation_ranges,
         "promotion_seed_range": tuple(
             int(value) for value in experiment_payload["promotion_seed_range"]
@@ -260,7 +267,11 @@ def resolve_manifest(
     return name, path, manifest
 
 
-def resolve_teacher_anchor_manifest(value: str) -> tuple[Path, dict[str, Any]]:
+def resolve_teacher_anchor_manifest(
+    value: str,
+    *,
+    expected_collection_max_steps: int,
+) -> tuple[Path, dict[str, Any]]:
     name, path = parse_named_manifest(value)
     if name != "teacher_anchor":
         raise ValueError(f"M7-C expected teacher_anchor corpus, got {name}")
@@ -274,6 +285,7 @@ def resolve_teacher_anchor_manifest(value: str) -> tuple[Path, dict[str, Any]]:
         path,
         expected_seed_start=registered.start,
         expected_seed_count=registered.count,
+        expected_collection_max_steps=expected_collection_max_steps,
     )
 
 
@@ -498,7 +510,8 @@ def main() -> int:
     anchor_manifest = None
     if args.teacher_anchor_validation_corpus is not None:
         anchor_path, anchor_manifest = resolve_teacher_anchor_manifest(
-            args.teacher_anchor_validation_corpus
+            args.teacher_anchor_validation_corpus,
+            expected_collection_max_steps=int(protocol["teacher_anchor_max_steps"]),
         )
     elif not args.smoke:
         raise ValueError("formal M7-C training requires a teacher-anchor validation corpus")
