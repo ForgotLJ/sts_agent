@@ -175,18 +175,21 @@ estimate is inconvenient.
 
 Collect the independent teacher-state anchor once. It is retained unchanged
 for all three rounds. The earlier `teacher-anchor` collection used the default
-`1000`-decision horizon, failed at seed `2210169`, and has no manifest. Retain
-that incomplete directory for audit, but do not reuse, overwrite, or remove it.
-The formal anchor is a fresh deterministic collection into
-`teacher-anchor-5000`; its manifest and every trace bind the `5000`-decision
-horizon.
+`1000`-decision horizon and failed at seed `2210169`. The subsequent
+`teacher-anchor-5000` attempt reached the fixed `5000`-decision limit at the
+same seed. Neither directory has a manifest. Retain both incomplete directories
+for audit, but do not reuse, overwrite, or remove them. The formal anchor is a
+fresh deterministic collection into `teacher-anchor-5000-truncated`; its
+manifest and every trace bind the `5000`-decision horizon and explicit
+horizon-truncation policy.
 
 ```bash
-ANCHOR="$RUN/teacher-anchor-5000"
+ANCHOR="$RUN/teacher-anchor-5000-truncated"
 "$PYTHON" -B scripts/collect-m7b-teacher-corpus.py \
   --seed-start 2210000 \
   --seed-count 512 \
   --max-steps 5000 \
+  --allow-horizon-truncation \
   --workers "$COLLECT_WORKERS" \
   --progress-interval 64 \
   --output "$ANCHOR"

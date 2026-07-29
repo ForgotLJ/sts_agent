@@ -52,6 +52,7 @@ from sts_env.training.m7c_dagger import (
 )
 from sts_env.training.self_imitation import build_imitation_chunks
 from sts_env.training.m7c_protocol import (
+    M7C_TEACHER_ANCHOR_ALLOW_HORIZON_TRUNCATION,
     M7C_TEACHER_ANCHOR_MAX_STEPS,
     m7c_frozen_inputs_identity,
     m7c_seed_registry,
@@ -147,6 +148,16 @@ def load_configuration(
     )
     if teacher_anchor_max_steps != M7C_TEACHER_ANCHOR_MAX_STEPS:
         raise ValueError("M7-C teacher anchor horizon differs from the protocol")
+    teacher_anchor_allow_horizon_truncation = experiment_payload.get(
+        "teacher_anchor_allow_horizon_truncation"
+    )
+    if (
+        teacher_anchor_allow_horizon_truncation
+        is not M7C_TEACHER_ANCHOR_ALLOW_HORIZON_TRUNCATION
+    ):
+        raise ValueError(
+            "M7-C teacher anchor truncation policy differs from the protocol"
+        )
     run_seeds = tuple(int(seed) for seed in experiment_payload["run_seeds"])
     mixing = tuple(float(value) for value in experiment_payload["teacher_mix_probabilities"])
     training_ranges = tuple(
@@ -217,6 +228,9 @@ def load_configuration(
             for value in experiment_payload["teacher_anchor_validation_seed_range"]
         ),
         "teacher_anchor_max_steps": teacher_anchor_max_steps,
+        "teacher_anchor_allow_horizon_truncation": (
+            teacher_anchor_allow_horizon_truncation
+        ),
         "on_policy_validation_seed_ranges": validation_ranges,
         "promotion_seed_range": tuple(
             int(value) for value in experiment_payload["promotion_seed_range"]
@@ -271,6 +285,7 @@ def resolve_teacher_anchor_manifest(
     value: str,
     *,
     expected_collection_max_steps: int,
+    expected_allow_horizon_truncation: bool,
 ) -> tuple[Path, dict[str, Any]]:
     name, path = parse_named_manifest(value)
     if name != "teacher_anchor":
@@ -286,6 +301,7 @@ def resolve_teacher_anchor_manifest(
         expected_seed_start=registered.start,
         expected_seed_count=registered.count,
         expected_collection_max_steps=expected_collection_max_steps,
+        expected_allow_horizon_truncation=expected_allow_horizon_truncation,
     )
 
 
@@ -512,6 +528,9 @@ def main() -> int:
         anchor_path, anchor_manifest = resolve_teacher_anchor_manifest(
             args.teacher_anchor_validation_corpus,
             expected_collection_max_steps=int(protocol["teacher_anchor_max_steps"]),
+            expected_allow_horizon_truncation=bool(
+                protocol["teacher_anchor_allow_horizon_truncation"]
+            ),
         )
     elif not args.smoke:
         raise ValueError("formal M7-C training requires a teacher-anchor validation corpus")

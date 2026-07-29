@@ -21,6 +21,7 @@
     "run_seeds": [17],
     "max_steps": 1000,
     "teacher_anchor_max_steps": 5000,
+    "teacher_anchor_allow_horizon_truncation": true,
     "chunk_length": 64,
     "burn_in_steps": 16,
     "trace_batch_size": 64,

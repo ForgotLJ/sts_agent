@@ -130,6 +130,46 @@ class MultiPhaseEnvironment:
         )
 
 
+class LoopEnvironment:
+    action = Action(
+        ActionKind.CHOOSE_OPTION,
+        source_id="loop",
+        option_type="loop",
+    )
+
+    def __init__(self) -> None:
+        self._observation = Observation(
+            phase=Phase.MAP,
+            turn=0,
+            player=PlayerView(hp=80, max_hp=80, block=0, energy=0),
+            hand=(),
+            enemies=(),
+            draw_pile=(),
+            discard_pile=(),
+            exhaust_pile=(),
+            legal_actions=(self.action,),
+            act=1,
+            floor=1,
+        )
+
+    @property
+    def observation(self) -> Observation:
+        return self._observation
+
+    def reset(self, seed: int | None = None):
+        return self._observation, {"backend": "m7b-loop", "seed": seed}
+
+    def step(self, action: int | Action):
+        resolved = (
+            self._observation.legal_actions[action]
+            if isinstance(action, int)
+            else action
+        )
+        if resolved != self.action:
+            raise ValueError("illegal loop fixture action")
+        return self._observation, 0.0, False, False, {"floor": 1}
+
+
 class CombatContextEnvironment:
     combat_actions = tuple(
         Action(
@@ -370,6 +410,7 @@ class M7BDistillationTests(unittest.TestCase):
                 seed_start=10,
                 seed_count=2,
                 collection_max_steps=10,
+                allow_horizon_truncation=False,
             )
             manifest_path = root / "manifest.json"
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -377,8 +418,10 @@ class M7BDistillationTests(unittest.TestCase):
             verified = verify_m7b_corpus_manifest(
                 manifest_path,
                 expected_collection_max_steps=10,
+                expected_allow_horizon_truncation=False,
             )
             self.assertEqual(verified["collection_max_steps"], 10)
+            self.assertFalse(verified["allow_horizon_truncation"])
 
             manifest["collection_max_steps"] = 11
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -386,7 +429,56 @@ class M7BDistillationTests(unittest.TestCase):
                 verify_m7b_corpus_manifest(
                     manifest_path,
                     expected_collection_max_steps=11,
+                    expected_allow_horizon_truncation=False,
                 )
+
+    def test_teacher_trace_horizon_truncation_is_explicit_and_audited(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "did not finish"):
+            record_m7b_teacher_trace(
+                LoopEnvironment(),
+                lambda observation: observation.legal_actions[0],
+                seed=11,
+                max_steps=3,
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            traces = root / "traces"
+            traces.mkdir()
+            record_m7b_teacher_trace(
+                MultiPhaseEnvironment(),
+                teacher_policy,
+                seed=10,
+                max_steps=10,
+                truncate_on_horizon=True,
+            ).write_jsonl(traces / "seed-00000010.jsonl")
+            truncated = record_m7b_teacher_trace(
+                LoopEnvironment(),
+                lambda observation: observation.legal_actions[0],
+                seed=11,
+                max_steps=10,
+                truncate_on_horizon=True,
+            )
+            truncated.write_jsonl(traces / "seed-00000011.jsonl")
+            self.assertTrue((truncated.metadata or {})["horizon_truncated"])
+            self.assertTrue(truncated.steps[-1].truncated)
+            self.assertTrue(truncated.steps[-1].info["m7b_horizon_truncated"])
+
+            manifest = build_m7b_corpus_manifest(
+                root,
+                seed_start=10,
+                seed_count=2,
+                collection_max_steps=10,
+                allow_horizon_truncation=True,
+            )
+            manifest_path = root / "manifest.json"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            verified = verify_m7b_corpus_manifest(
+                manifest_path,
+                expected_collection_max_steps=10,
+                expected_allow_horizon_truncation=True,
+            )
+            self.assertEqual(verified["horizon_truncations"], 1)
 
     def test_corpus_manifest_relocates_with_its_trace_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

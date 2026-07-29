@@ -236,6 +236,25 @@ class M7CDaggerTrainingTests(unittest.TestCase):
                     smoke=True,
                 )
 
+    def test_configuration_rejects_wrong_anchor_truncation_policy(self) -> None:
+        train_script = load_script(
+            "train_m7c_anchor_truncation_configuration_test",
+            "scripts/train-m7c-dagger.py",
+        )
+        configuration_path = PROJECT_ROOT / "config" / "m7c_dagger_control.json"
+        payload = __import__("json").loads(configuration_path.read_text(encoding="utf-8"))
+        payload["experiment"]["teacher_anchor_allow_horizon_truncation"] = False
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "invalid-config.json"
+            path.write_text(__import__("json").dumps(payload), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "truncation policy"):
+                train_script.load_configuration(
+                    path,
+                    run_seed=17,
+                    round_index=0,
+                    smoke=True,
+                )
+
     def test_teacher_anchor_manifest_requires_configured_horizon(self) -> None:
         train_script = load_script(
             "train_m7c_anchor_manifest_test",
@@ -249,10 +268,15 @@ class M7CDaggerTrainingTests(unittest.TestCase):
             train_script.resolve_teacher_anchor_manifest(
                 "teacher_anchor=/tmp/anchor-manifest.json",
                 expected_collection_max_steps=5_000,
+                expected_allow_horizon_truncation=True,
             )
         self.assertEqual(
             verify.call_args.kwargs["expected_collection_max_steps"],
             5_000,
+        )
+        self.assertIs(
+            verify.call_args.kwargs["expected_allow_horizon_truncation"],
+            True,
         )
 
     def test_formal_round_initialization_is_frozen(self) -> None:

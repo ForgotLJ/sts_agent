@@ -28,18 +28,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed-start", type=int, required=True)
     parser.add_argument("--seed-count", type=int, required=True)
     parser.add_argument("--max-steps", type=int, default=1_000)
+    parser.add_argument("--allow-horizon-truncation", action="store_true")
     parser.add_argument("--workers", type=int, default=16)
     parser.add_argument("--progress-interval", type=int, default=64)
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
 
 
-def collect_one(seed: int, destination: Path, max_steps: int) -> dict[str, Any]:
+def collect_one(
+    seed: int,
+    destination: Path,
+    max_steps: int,
+    allow_horizon_truncation: bool,
+) -> dict[str, Any]:
     trace = record_m7b_teacher_trace(
         StsEnv(LightspeedBackend()),
         HeuristicPolicy(),
         seed=seed,
         max_steps=max_steps,
+        truncate_on_horizon=allow_horizon_truncation,
     )
     temporary = destination.with_name(destination.name + ".tmp")
     trace.write_jsonl(temporary)
@@ -50,17 +57,35 @@ def collect_one(seed: int, destination: Path, max_steps: int) -> dict[str, Any]:
         "steps": len(trace.steps),
         "won": bool(metadata["won"]),
         "final_floor": int(metadata["final_floor"]),
+        "horizon_truncated": bool(metadata["horizon_truncated"]),
         "phase_supervision_counts": dict(metadata["phase_supervision_counts"]),
     }
 
 
-def validate_existing_trace(path: Path, seed: int, max_steps: int) -> None:
+def validate_existing_trace(
+    path: Path,
+    seed: int,
+    max_steps: int,
+    allow_horizon_truncation: bool,
+) -> None:
     trace = EpisodeTrace.read_jsonl(path)
     metadata = dict(trace.metadata or {})
     if (
         trace.seed != seed
         or metadata.get("protocol") != "m7b-teacher"
         or int(metadata.get("collection_max_steps", -1)) != max_steps
+        or not isinstance(metadata.get("horizon_truncated"), bool)
+        or (
+            bool(metadata.get("horizon_truncated"))
+            and not allow_horizon_truncation
+        )
+        or (
+            bool(metadata.get("horizon_truncated"))
+            and (
+                not trace.steps[-1].truncated
+                or trace.steps[-1].info.get("m7b_horizon_truncated") is not True
+            )
+        )
     ):
         raise ValueError(f"invalid existing M7-B trace: {path}")
 
@@ -83,7 +108,12 @@ def main() -> int:
     for seed in range(args.seed_start, args.seed_start + args.seed_count):
         path = traces_directory / f"seed-{seed:08d}.jsonl"
         if path.is_file():
-            validate_existing_trace(path, seed, args.max_steps)
+            validate_existing_trace(
+                path,
+                seed,
+                args.max_steps,
+                args.allow_horizon_truncation,
+            )
             reused += 1
         else:
             pending.append((seed, path))
@@ -92,7 +122,13 @@ def main() -> int:
     if pending:
         with ProcessPoolExecutor(max_workers=min(args.workers, len(pending))) as pool:
             futures = {
-                pool.submit(collect_one, seed, path, args.max_steps): seed
+                pool.submit(
+                    collect_one,
+                    seed,
+                    path,
+                    args.max_steps,
+                    args.allow_horizon_truncation,
+                ): seed
                 for seed, path in pending
             }
             for completed_count, future in enumerate(as_completed(futures), start=1):
@@ -125,6 +161,7 @@ def main() -> int:
         "complete": not errors,
         "seed_range": [args.seed_start, args.seed_start + args.seed_count - 1],
         "max_steps": args.max_steps,
+        "allow_horizon_truncation": args.allow_horizon_truncation,
         "requested": args.seed_count,
         "reused": reused,
         "collected": len(completed),
@@ -144,6 +181,7 @@ def main() -> int:
         seed_start=args.seed_start,
         seed_count=args.seed_count,
         collection_max_steps=args.max_steps,
+        allow_horizon_truncation=args.allow_horizon_truncation,
     )
     (args.output / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -157,6 +195,7 @@ def main() -> int:
                 "phase_supervision_counts": manifest["phase_supervision_counts"],
                 "wins": manifest["wins"],
                 "mean_final_floor": manifest["mean_final_floor"],
+                "horizon_truncations": manifest["horizon_truncations"],
             },
             ensure_ascii=False,
             sort_keys=True,

@@ -146,6 +146,7 @@ def record_m7b_teacher_trace(
     *,
     seed: int,
     max_steps: int,
+    truncate_on_horizon: bool = False,
 ) -> EpisodeTrace:
     if seed < 0 or max_steps <= 0:
         raise ValueError("M7-B teacher collection arguments are invalid")
@@ -154,6 +155,25 @@ def record_m7b_teacher_trace(
     phase_counts = {phase.value: 0 for phase in M7B_SUPERVISED_PHASES}
     steps: list[TraceStep] = []
     environment_return = 0.0
+
+    def finish_trace(*, horizon_truncated: bool) -> EpisodeTrace:
+        return EpisodeTrace(
+            seed=seed,
+            initial_observation_digest=initial_digest,
+            steps=tuple(steps),
+            backend=str(reset_info.get("backend", "unknown")),
+            metadata={
+                "protocol": "m7b-teacher",
+                "collection_max_steps": max_steps,
+                "horizon_truncated": horizon_truncated,
+                "phase_supervision_counts": phase_counts,
+                "final_act": observation.act,
+                "final_floor": observation.floor,
+                "won": environment_return > 0,
+                "environment_return": environment_return,
+            },
+        )
+
     for _ in range(max_steps):
         action = policy(observation)
         if observation.phase in M7B_SUPERVISED_PHASES and len(
@@ -173,22 +193,21 @@ def record_m7b_teacher_trace(
             )
         )
         if terminated or truncated:
-            return EpisodeTrace(
-                seed=seed,
-                initial_observation_digest=initial_digest,
-                steps=tuple(steps),
-                backend=str(reset_info.get("backend", "unknown")),
-                metadata={
-                    "protocol": "m7b-teacher",
-                    "collection_max_steps": max_steps,
-                    "phase_supervision_counts": phase_counts,
-                    "final_act": observation.act,
-                    "final_floor": observation.floor,
-                    "won": environment_return > 0,
-                    "environment_return": environment_return,
-                },
-            )
-    raise RuntimeError(f"M7-B teacher episode did not finish within {max_steps} steps")
+            return finish_trace(horizon_truncated=False)
+    if not truncate_on_horizon:
+        raise RuntimeError(
+            f"M7-B teacher episode did not finish within {max_steps} steps"
+        )
+    last_step = steps[-1]
+    steps[-1] = TraceStep(
+        action=last_step.action,
+        observation_digest=last_step.observation_digest,
+        reward=last_step.reward,
+        terminated=last_step.terminated,
+        truncated=True,
+        info={**last_step.info, "m7b_horizon_truncated": True},
+    )
+    return finish_trace(horizon_truncated=True)
 
 
 def build_m7b_corpus_manifest(
@@ -197,6 +216,7 @@ def build_m7b_corpus_manifest(
     seed_start: int,
     seed_count: int,
     collection_max_steps: int | None = None,
+    allow_horizon_truncation: bool | None = None,
 ) -> dict[str, Any]:
     root = Path(corpus_directory).resolve()
     traces_root = root / "traces"
@@ -204,6 +224,10 @@ def build_m7b_corpus_manifest(
         seed_start < 0
         or seed_count <= 0
         or (collection_max_steps is not None and collection_max_steps <= 0)
+        or (
+            allow_horizon_truncation is not None
+            and not isinstance(allow_horizon_truncation, bool)
+        )
         or not traces_root.is_dir()
     ):
         raise ValueError("M7-B corpus manifest arguments are invalid")
@@ -212,6 +236,7 @@ def build_m7b_corpus_manifest(
     phase_counts = {phase.value: 0 for phase in M7B_SUPERVISED_PHASES}
     wins = 0
     final_floors = []
+    horizon_truncations = 0
     for seed in range(seed_start, seed_start + seed_count):
         path = traces_root / f"seed-{seed:08d}.jsonl"
         if not path.is_file():
@@ -226,6 +251,17 @@ def build_m7b_corpus_manifest(
             != collection_max_steps
         ):
             raise ValueError(f"M7-B trace has the wrong collection horizon: {path}")
+        horizon_truncated = metadata.get("horizon_truncated")
+        if allow_horizon_truncation is not None:
+            if not isinstance(horizon_truncated, bool):
+                raise ValueError(f"M7-B trace lacks horizon provenance: {path}")
+            if horizon_truncated and not allow_horizon_truncation:
+                raise ValueError(f"M7-B trace has a forbidden horizon truncation: {path}")
+            if horizon_truncated and (
+                not trace.steps[-1].truncated
+                or trace.steps[-1].info.get("m7b_horizon_truncated") is not True
+            ):
+                raise ValueError(f"M7-B trace has invalid horizon truncation: {path}")
         trace_phase_counts = {
             str(name): int(count)
             for name, count in dict(
@@ -256,6 +292,7 @@ def build_m7b_corpus_manifest(
             phase_counts[phase] += count
         wins += int(bool(metadata.get("won")))
         final_floors.append(int(metadata.get("final_floor", 0)))
+        horizon_truncations += int(bool(horizon_truncated))
     if any(count <= 0 for count in phase_counts.values()):
         raise ValueError("M7-B corpus lacks one or more supervised phases")
     manifest = {
@@ -274,6 +311,9 @@ def build_m7b_corpus_manifest(
     }
     if collection_max_steps is not None:
         manifest["collection_max_steps"] = collection_max_steps
+    if allow_horizon_truncation is not None:
+        manifest["allow_horizon_truncation"] = allow_horizon_truncation
+        manifest["horizon_truncations"] = horizon_truncations
     return manifest
 
 
@@ -283,9 +323,14 @@ def verify_m7b_corpus_manifest(
     expected_seed_start: int | None = None,
     expected_seed_count: int | None = None,
     expected_collection_max_steps: int | None = None,
+    expected_allow_horizon_truncation: bool | None = None,
 ) -> dict[str, Any]:
     path = Path(manifest_path).resolve()
     payload = json.loads(path.read_text(encoding="utf-8"))
+    if expected_allow_horizon_truncation is not None and not isinstance(
+        expected_allow_horizon_truncation, bool
+    ):
+        raise ValueError("M7-B expected horizon-truncation policy must be boolean")
     if (
         payload.get("protocol") != "m7b-teacher-corpus"
         or int(payload.get("schema_version", -1)) != 1
@@ -308,6 +353,17 @@ def verify_m7b_corpus_manifest(
             raise ValueError("M7-B expected collection horizon must be positive")
         if declared_collection_max_steps != expected_collection_max_steps:
             raise ValueError("M7-B corpus has the wrong collection horizon")
+    declared_allow_horizon_truncation = payload.get("allow_horizon_truncation")
+    if declared_allow_horizon_truncation is not None and not isinstance(
+        declared_allow_horizon_truncation, bool
+    ):
+        raise ValueError("M7-B corpus has invalid horizon-truncation provenance")
+    if (
+        expected_allow_horizon_truncation is not None
+        and declared_allow_horizon_truncation
+        is not expected_allow_horizon_truncation
+    ):
+        raise ValueError("M7-B corpus has the wrong horizon-truncation policy")
     declared_root = Path(str(payload["root"]))
     root = declared_root if declared_root.is_dir() else path.parent
     if not (root / "traces").is_dir():
@@ -319,6 +375,7 @@ def verify_m7b_corpus_manifest(
         seed_start=seed_range[0],
         seed_count=seed_range[1] - seed_range[0] + 1,
         collection_max_steps=declared_collection_max_steps,
+        allow_horizon_truncation=declared_allow_horizon_truncation,
     )
     for key in (
         "aggregate_sha256",
@@ -326,6 +383,8 @@ def verify_m7b_corpus_manifest(
         "phase_supervision_counts",
         "seed_range",
         "collection_max_steps",
+        "allow_horizon_truncation",
+        "horizon_truncations",
     ):
         if key in rebuilt and rebuilt[key] != payload.get(key):
             raise ValueError(f"M7-B corpus differs from its manifest: {key}")

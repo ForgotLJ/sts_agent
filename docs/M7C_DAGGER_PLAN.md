@@ -47,7 +47,9 @@ with the heuristic policy and aggregates them across rounds.
 - All checkpoints, corpus manifests, and replay caches are written atomically.
 - The independent teacher-state anchor is collected deterministically with a
   `5000`-decision horizon. The horizon is recorded in every trace and in the
-  corpus manifest; formal training rejects a missing or different value.
+  corpus manifest. A non-terminal episode is truncated exactly at that fixed
+  horizon, and both the per-trace marker and aggregate truncation count are
+  audited. Formal training rejects a missing or different policy.
 
 ## Pre-registered Data Split
 
@@ -67,11 +69,14 @@ non-combat behavior is selected by the current student unless a round's
 pre-registered teacher mixing decision is taken.
 
 The first anchor attempt used the collector default of `1000` decisions and
-failed at seed `2210169`; it produced no manifest and was never used for
-training, selection, or evaluation. Its incomplete directory is retained for
-audit only. The same pre-registered 512-seed range must be recollected from
-scratch in a distinct `teacher-anchor-5000` directory with the fixed
-`5000`-decision horizon before any formal DAgger round begins.
+failed at seed `2210169`. A second complete-range attempt fixed the horizon at
+`5000` and reached the same non-terminal seed limit, establishing a persistent
+teacher loop rather than an undersized horizon. Neither attempt produced a
+manifest or supplied information to training, selection, or evaluation. Both
+incomplete directories are retained for audit only. The same pre-registered
+512-seed range must be recollected from scratch in a distinct
+`teacher-anchor-5000-truncated` directory. Fixed-horizon truncation preserves
+all seeds and is loop-erased by the existing M7-B imitation path.
 
 The collector is resumable and only accepts the named pre-registered range:
 
