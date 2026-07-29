@@ -1,0 +1,60 @@
+{
+  "protocol": "m7c-dagger",
+  "frozen_inputs": {
+    "teacher_corpus": {
+      "seed_range": [400000, 4096],
+      "aggregate_sha256": "0dfdd54bccc66b6c16b2f4515fa160ecc46752f21dc1022d1032c57b026fdd14"
+    },
+    "initial_checkpoint": {
+      "protocol": "m7b",
+      "run_seed": 17,
+      "sha256": "ca6b91ac701306c2dca5aa4e1eef217691c41f515df2b6b250a99d1f2b728383"
+    },
+    "m6_baseline_checkpoint": {
+      "protocol": "m6",
+      "run_seed": 17,
+      "sha256": "51b2e02e87af9753c9f2b0eba8a731733426d51c78cdc6bcc23114a8bdae83d5"
+    }
+  },
+  "experiment": {
+    "device": "cuda",
+    "run_seeds": [17],
+    "max_steps": 1000,
+    "chunk_length": 64,
+    "burn_in_steps": 16,
+    "trace_batch_size": 64,
+    "optimizer_batch_chunks": 16,
+    "checkpoint_interval_batches": 1,
+    "epochs_per_round": 3,
+    "early_stopping_patience": 2,
+    "maximum_phase_multiplier": 4,
+    "dagger_batch_repeat": 4,
+    "smoke_teacher_trace_limit": 8,
+    "heuristic_floor_noninferiority_margin": 1.0,
+    "heuristic_act1_noninferiority_margin": 0.02,
+    "teacher_mix_probabilities": [0.5, 0.25, 0.0],
+    "training_round_seed_ranges": [
+      [2200000, 1024],
+      [2201024, 1024],
+      [2202048, 1024]
+    ],
+    "teacher_anchor_validation_seed_range": [2210000, 512],
+    "on_policy_validation_seed_ranges": [
+      [2211000, 512],
+      [2212000, 512],
+      [2213000, 512]
+    ],
+    "promotion_seed_range": [2220000, 512],
+    "formal_gate_seed_range": [2221000, 512]
+  },
+  "ppo": {
+    "action_embedding_size": 128,
+    "entropy_weight": 0.0,
+    "gradient_clip_norm": 1.0,
+    "learning_rate": 0.0001,
+    "recurrent_size": 128,
+    "state_embedding_size": 128,
+    "uniform_exploration_weight": 0.0,
+    "value_loss_weight": 0.0
+  }
+}

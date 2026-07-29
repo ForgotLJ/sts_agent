@@ -26,6 +26,10 @@ from sts_env.training import (
     evaluate_full_runs,
     load_m6_checkpoint,
     load_m7_checkpoint,
+    load_m7b_checkpoint,
+    load_m7c_checkpoint,
+    m7c_seed_registry,
+    require_registered_seed_range,
     validate_m7_fixed_budget_progress,
     validate_m7_evaluation_seed_range,
 )
@@ -72,6 +76,10 @@ def parse_args() -> argparse.Namespace:
         "--report-label",
         help="method label used in reports while preserving the selected policy behavior",
     )
+    parser.add_argument(
+        "--m7c-range-name",
+        help="require an exact named M7-C pre-registered evaluation range",
+    )
     parser.add_argument("--stochastic", action="store_true")
     parser.add_argument("--final", action="store_true")
     parser.add_argument("--freeze-manifest", type=Path)
@@ -103,6 +111,10 @@ def report_method_name(method: str, label: str | None) -> str:
 
 def load_checkpoint(path: Path) -> tuple[Any, str]:
     payload = torch.load(path, map_location="cpu", weights_only=False)
+    if payload.get("protocol") == "m7b":
+        return load_m7b_checkpoint(path, device="cpu"), "m7b"
+    if payload.get("protocol") == "m7c-dagger":
+        return load_m7c_checkpoint(path, device="cpu"), "m7c-dagger"
     if payload.get("protocol") == "m7":
         return load_m7_checkpoint(path, device="cpu"), "m7"
     return load_m6_checkpoint(path, device="cpu"), "m6"
@@ -182,6 +194,18 @@ def main() -> int:
         final=args.final,
     )
     requested_end = args.seed_start + args.seed_count - 1
+    m7c_seed_range = None
+    if args.m7c_range_name is not None:
+        registry = m7c_seed_registry()
+        if args.m7c_range_name not in registry:
+            raise ValueError(f"unknown M7-C range: {args.m7c_range_name}")
+        registered = registry[args.m7c_range_name]
+        m7c_seed_range = require_registered_seed_range(
+            registered.name,
+            start=args.seed_start,
+            count=args.seed_count,
+            registry=registry,
+        )
     intersects_m6_final = max(args.seed_start, M6_FINAL_SEED_START) <= min(
         requested_end,
         M6_FINAL_SEED_END,
@@ -196,6 +220,8 @@ def main() -> int:
     checkpoint_protocol = None
     if args.checkpoint is not None:
         loaded, checkpoint_protocol = load_checkpoint(args.checkpoint)
+    if checkpoint_protocol == "m7c-dagger" and m7c_seed_range is None:
+        raise ValueError("M7-C evaluation requires --m7c-range-name")
     if args.m6_posthoc_diagnostic and checkpoint_protocol != "m6":
         raise ValueError("M6 post-hoc diagnostics require an M6 checkpoint")
 
@@ -282,6 +308,9 @@ def main() -> int:
         "stochastic": args.stochastic,
         "final": args.final,
         "m6_posthoc_diagnostic": args.m6_posthoc_diagnostic,
+        "m7c_range_name": (
+            None if m7c_seed_range is None else m7c_seed_range.name
+        ),
         "freeze_manifest": freeze_verification,
         "runtime_manifest": runtime_manifest,
         "summary": summary.to_dict(),

@@ -1,0 +1,37 @@
+{
+  "protocol": "m7b",
+  "experiment": {
+    "burn_in_steps": 16,
+    "checkpoint_interval_batches": 1,
+    "chunk_length": 64,
+    "device": "cuda",
+    "early_stopping_patience": 3,
+    "gate_seed_count": 512,
+    "gate_seed_start": 1600000,
+    "max_epochs": 20,
+    "maximum_phase_multiplier": 4,
+    "optimizer_batch_chunks": 16,
+    "run_seeds": [17],
+    "trace_batch_size": 64,
+    "training_seed_count": 4096,
+    "training_seed_start": 400000,
+    "validation_seed_count": 512,
+    "validation_seed_start": 1500000
+  },
+  "ppo": {
+    "action_embedding_size": 128,
+    "clip_ratio": 0.2,
+    "entropy_weight": 0.0,
+    "gae_lambda": 0.95,
+    "gamma": 0.997,
+    "gradient_clip_norm": 1.0,
+    "learning_rate": 0.0001,
+    "minibatch_environments": 8,
+    "recurrent_size": 128,
+    "state_embedding_size": 128,
+    "uniform_exploration_weight": 0.0,
+    "update_epochs": 1,
+    "value_clip": 0.2,
+    "value_loss_weight": 0.0
+  }
+}

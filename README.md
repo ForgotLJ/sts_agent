@@ -100,3 +100,31 @@ $env:PYTHONPATH='src'
 ```bash
 .venv/bin/python scripts/run-m6-server.py plan --profile balanced
 ```
+
+## M7-B persistent non-combat distillation
+
+M7 balanced DAgger pilot did not pass its promotion gate. M7-B therefore isolates
+non-combat teacher distillation: persistent heuristic traces, phase-stratified replay,
+pure cross-entropy training, held-out teacher-action validation, and a separate paired
+end-to-end gate.
+
+The formal seed-17 run completed on 2026-07-29. It passed the held-out
+teacher-action gate but failed the paired end-to-end gate, so seed 29/43 and the
+final blind test were not run.
+
+- Protocol: `docs/M7B_DISTILLATION_PLAN.md`
+- Server commands and pause/resume: `docs/M7B_SERVER_RUNBOOK.md`
+- Formal result: `docs/M7B_FORMAL_RESULT.md`
+
+## M7-C Persistent DAgger
+
+M7-B's teacher-forced improvement regressed in closed-loop play, so M7-C tests
+persistent GRU DAgger before changing the architecture. It retains the frozen
+M7-B teacher corpus, labels student-induced states across three rounds, and
+uses an independent promotion audit before any attention ablation.
+
+- Protocol: `docs/M7C_DAGGER_PLAN.md`
+- Server runbook: `docs/M7C_SERVER_RUNBOOK.md`
+- Frozen server inputs: `scripts/package-m7c-frozen-inputs.py`,
+  `scripts/import-m7c-frozen-inputs.py`, and
+  `scripts/verify-m7c-frozen-inputs.py`

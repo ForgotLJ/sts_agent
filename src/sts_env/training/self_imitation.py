@@ -120,6 +120,9 @@ def build_imitation_chunks(
     chunk_length: int = 64,
     burn_in_steps: int = 16,
     recovery_environment_factory: Callable[[], StsEnv] | None = None,
+    sparse_unsupervised_actions: bool = False,
+    target_action_resolver: Callable[[EpisodeTrace, int, Observation], Action] | None = None,
+    loop_erase: bool = True,
 ) -> tuple[ImitationChunk, ...]:
     if not traces or chunk_length <= 0 or burn_in_steps < 0:
         raise ValueError("self-imitation requires traces and valid sequence lengths")
@@ -147,20 +150,47 @@ def build_imitation_chunks(
         chosen: list[int] = []
         phases = []
         state_keys = [_state_key(observation)]
-        for step in trace.steps:
+        for step_index, step in enumerate(trace.steps):
             try:
-                action_index = observation.legal_actions.index(step.action)
+                behavior_action_index = observation.legal_actions.index(step.action)
             except ValueError as error:
                 raise ValueError("self-imitation trace contains a stale action") from error
+            target_action = (
+                step.action
+                if target_action_resolver is None
+                else target_action_resolver(trace, step_index, observation)
+            )
+            try:
+                target_action_index = observation.legal_actions.index(target_action)
+            except ValueError as error:
+                raise ValueError(
+                    "self-imitation target action is stale"
+                ) from error
             states.append(trainer.encoder.encode_state(observation))
-            actions.append(trainer.encoder.encode_actions(observation))
-            chosen.append(action_index)
+            supervision_candidate = (
+                observation.phase is not Phase.COMBAT
+                and len(observation.legal_actions) > 1
+            )
+            if sparse_unsupervised_actions and not supervision_candidate:
+                sparse_observation = replace(
+                    observation,
+                    legal_actions=(observation.legal_actions[0],),
+                )
+                actions.append(trainer.encoder.encode_actions(sparse_observation))
+                chosen.append(0)
+            else:
+                actions.append(trainer.encoder.encode_actions(observation))
+                chosen.append(target_action_index)
             phases.append(observation.phase)
             observation, _, terminated, truncated, _ = environment.step(step.action)
             state_keys.append(_state_key(observation))
             if terminated or truncated:
                 break
-        retained = set(_loop_erased_action_indices(tuple(state_keys)))
+        retained = (
+            set(_loop_erased_action_indices(tuple(state_keys)))
+            if loop_erase
+            else set(range(len(states)))
+        )
         for start in range(0, len(states), chunk_length):
             stop = min(len(states), start + chunk_length)
             context_start = max(0, start - burn_in_steps)
