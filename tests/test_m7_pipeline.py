@@ -272,6 +272,40 @@ class M7PipelineTests(unittest.TestCase):
             -1.0,
         )
 
+    def test_m7_reporting_supports_multiple_reference_methods(self) -> None:
+        evaluations = (
+            evaluation("heuristic", policy_seed=17, run_seed=None, floor_delta=0),
+            evaluation("m6-initial", policy_seed=17, run_seed=17, floor_delta=-1),
+            evaluation("m7c-dagger", policy_seed=17, run_seed=17, floor_delta=1),
+        )
+
+        summary = summarize_m7_evaluations(
+            evaluations,
+            reference_methods=("m6-initial", "heuristic"),
+            bootstrap_samples=100,
+        )
+
+        self.assertEqual(summary["reference_method"], "m6-initial")
+        self.assertEqual(
+            summary["reference_methods"],
+            ["m6-initial", "heuristic"],
+        )
+        self.assertIn(
+            "m7c-dagger_minus_m6-initial",
+            summary["paired_comparisons"],
+        )
+        self.assertIn(
+            "m7c-dagger_minus_heuristic",
+            summary["paired_comparisons"],
+        )
+
+        with self.assertRaisesRegex(ValueError, "configuration is invalid"):
+            summarize_m7_evaluations(
+                evaluations,
+                reference_methods=("heuristic", "heuristic"),
+                bootstrap_samples=100,
+            )
+
     def test_training_entry_resolves_smoke_budget_without_changing_source_config(self) -> None:
         trainer_script = load_script("train_m7_test", "scripts/train-m7.py")
 

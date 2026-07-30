@@ -46,9 +46,19 @@ def summarize_m7_evaluations(
     evaluations: tuple[dict[str, Any], ...],
     *,
     reference_method: str = "heuristic",
+    reference_methods: tuple[str, ...] | None = None,
     bootstrap_samples: int = 10_000,
 ) -> dict[str, Any]:
-    if not evaluations or not reference_method or bootstrap_samples <= 0:
+    requested_references = (
+        (reference_method,) if reference_methods is None else tuple(reference_methods)
+    )
+    if (
+        not evaluations
+        or not requested_references
+        or any(not method for method in requested_references)
+        or len(set(requested_references)) != len(requested_references)
+        or bootstrap_samples <= 0
+    ):
         raise ValueError("M7 reporting configuration is invalid")
     by_method: dict[str, list[dict[str, Any]]] = {}
     identities: set[tuple[str, int | None, int]] = set()
@@ -63,26 +73,32 @@ def summarize_m7_evaluations(
         identities.add(identity)
         _episodes_by_seed(evaluation)
         by_method.setdefault(method, []).append(evaluation)
-    if reference_method not in by_method:
-        raise ValueError("M7 reference method is missing")
+    missing_references = tuple(
+        method for method in requested_references if method not in by_method
+    )
+    if missing_references:
+        raise ValueError(
+            f"M7 reference methods are missing: {', '.join(missing_references)}"
+        )
 
     aggregate = {
         method: _aggregate_method(method_evaluations)
         for method, method_evaluations in sorted(by_method.items())
     }
     comparisons = {}
-    references = tuple(by_method[reference_method])
-    for method, candidates in sorted(by_method.items()):
-        if method == reference_method:
-            continue
-        comparisons[f"{method}_minus_{reference_method}"] = (
-            hierarchical_paired_evaluation_difference(
-                tuple(candidates),
-                references,
-                bootstrap_samples=bootstrap_samples,
-                seed=_stable_seed(method, reference_method),
+    for requested_reference in requested_references:
+        references = tuple(by_method[requested_reference])
+        for method, candidates in sorted(by_method.items()):
+            if method == requested_reference:
+                continue
+            comparisons[f"{method}_minus_{requested_reference}"] = (
+                hierarchical_paired_evaluation_difference(
+                    tuple(candidates),
+                    references,
+                    bootstrap_samples=bootstrap_samples,
+                    seed=_stable_seed(method, requested_reference),
+                )
             )
-        )
     warnings = []
     for method, method_evaluations in sorted(by_method.items()):
         duplicate_sets = _duplicate_episode_set_count(method_evaluations)
@@ -101,7 +117,8 @@ def summarize_m7_evaluations(
     return {
         "schema_version": 1,
         "protocol": "m7",
-        "reference_method": reference_method,
+        "reference_method": requested_references[0],
+        "reference_methods": list(requested_references),
         "bootstrap_samples": bootstrap_samples,
         "independence_units": {
             "environment": "environment seed",

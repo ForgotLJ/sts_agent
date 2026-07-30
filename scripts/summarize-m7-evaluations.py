@@ -15,7 +15,7 @@ from sts_env.training import summarize_m7_evaluations
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Summarize M7 evaluations.")
     parser.add_argument("--evaluation", type=Path, action="append", required=True)
-    parser.add_argument("--reference-method", default="heuristic")
+    parser.add_argument("--reference-method", action="append")
     parser.add_argument("--bootstrap-samples", type=int, default=10000)
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
@@ -26,9 +26,10 @@ def main() -> int:
     evaluations = tuple(
         json.loads(path.read_text(encoding="utf-8")) for path in args.evaluation
     )
+    reference_methods = tuple(args.reference_method or ("heuristic",))
     summary = summarize_m7_evaluations(
         evaluations,
-        reference_method=args.reference_method,
+        reference_methods=reference_methods,
         bootstrap_samples=args.bootstrap_samples,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)

@@ -364,7 +364,8 @@ mkdir -p "$PROMOTION"
   --evaluation "$PROMOTION/m7c-dagger.json" \
   --evaluation "$PROMOTION/m6-initial.json" \
   --evaluation "$PROMOTION/heuristic.json" \
-  --reference-method m6-initial --bootstrap-samples 10000 \
+  --reference-method m6-initial --reference-method heuristic \
+  --bootstrap-samples 10000 \
   --output "$PROMOTION/summary.json"
 "$PYTHON" -B scripts/audit-m7c.py \
   --end-to-end-summary "$PROMOTION/summary.json" \
@@ -376,6 +377,29 @@ mkdir -p "$PROMOTION"
 formal paired gate, seed 29/43 work, or blind evaluation. A pass only opens the
 pre-registered attention ablation design; it does not authorize the formal
 gate automatically.
+
+## Post-Hoc Diagnostic
+
+After the promotion audit has stopped the formal run, the frozen outputs may be
+summarized descriptively without running another policy evaluation. This report
+verifies all six corpus manifests and trace hashes, reads each selected
+validation checkpoint record, and records behavior disagreement by round,
+phase, and floor. It explicitly marks observed outcome differences as
+associations rather than counterfactual regret and cannot select a model.
+
+```bash
+DIAGNOSTIC="$RUN/diagnostics/m7c-posthoc.json"
+test ! -e "$DIAGNOSTIC"
+"$PYTHON" -B scripts/diagnose-m7c.py \
+  --run-root "$RUN" \
+  --run-seed 17 \
+  --output "$DIAGNOSTIC"
+```
+
+Do not pass `--skip-trace-hashes` for a retained experiment result. The option
+exists only for local engineering tests where the trace archive is unavailable.
+Running this diagnostic does not reopen the promotion range or authorize any
+additional training, attention ablation, paired gate, or blind evaluation.
 
 ## Release Artifacts
 
