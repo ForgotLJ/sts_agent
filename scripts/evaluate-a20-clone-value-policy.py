@@ -67,6 +67,7 @@ def main() -> int:
         raise FileNotFoundError(checkpoint)
     value_model = load_online_value_model(checkpoint, args.device)
     seeds = tuple(range(args.seed_start, args.seed_start + args.seed_count))
+    candidate_policies: list[A20CloneValueCardRewardPolicy] = []
 
     def environment_factory() -> StsEnv:
         return StsEnv(
@@ -78,12 +79,17 @@ def main() -> int:
             )
         )
 
-    candidate_summary = evaluate_full_runs(
-        environment_factory,
-        lambda _, __: A20CloneValueCardRewardPolicy(
+    def candidate_policy_factory(_: int, __: int) -> A20CloneValueCardRewardPolicy:
+        policy = A20CloneValueCardRewardPolicy(
             value_model,
             override_margin=args.override_margin,
-        ),
+        )
+        candidate_policies.append(policy)
+        return policy
+
+    candidate_summary = evaluate_full_runs(
+        environment_factory,
+        candidate_policy_factory,
         seeds,
         policy_seed=args.policy_seed,
         max_steps=args.max_steps,
@@ -107,6 +113,27 @@ def main() -> int:
         "policy_seed": args.policy_seed,
         "summary": reference_summary.to_dict(),
     }
+    telemetry_totals: dict[str, float] = {}
+    for policy in candidate_policies:
+        for key, value in policy.telemetry().items():
+            telemetry_totals[key] = telemetry_totals.get(key, 0.0) + float(value)
+    decision_count = telemetry_totals.get("card_reward_decisions", 0.0)
+    override_count = telemetry_totals.get("overrides", 0.0)
+    candidate_telemetry = {
+        **telemetry_totals,
+        "episodes": len(candidate_policies),
+        "mean_candidates_per_card_reward": (
+            telemetry_totals.get("candidate_actions_scored", 0.0) / decision_count
+            if decision_count
+            else 0.0
+        ),
+        "override_rate": override_count / decision_count if decision_count else 0.0,
+        "mean_override_advantage": (
+            telemetry_totals.get("override_advantage_total", 0.0) / override_count
+            if override_count
+            else 0.0
+        ),
+    }
     payload: dict[str, Any] = {
         "protocol": "a20-clone-value-card-reward-paired-lightspeed-evaluation",
         "schema_version": 1,
@@ -126,6 +153,7 @@ def main() -> int:
         "neow_history": args.neow_history,
         "act1_boss_history": args.act1_boss_history,
         "candidate": candidate,
+        "candidate_policy_telemetry": candidate_telemetry,
         "reference": reference,
         "paired_difference": paired_evaluation_difference(
             candidate,
@@ -154,6 +182,7 @@ def main() -> int:
                     if key != "episodes"
                 },
                 "final_floor_difference": payload["paired_difference"]["metrics"]["final_floor"],
+                "candidate_policy_telemetry": candidate_telemetry,
             },
             ensure_ascii=False,
             indent=2,

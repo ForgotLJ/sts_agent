@@ -835,10 +835,28 @@ class A20CloneValueCardRewardPolicy:
         self._fallback = fallback or HeuristicPolicy()
         self._override_margin = override_margin
         self._total_simulator_calls = 0
+        self._card_reward_decisions = 0
+        self._candidate_actions_scored = 0
+        self._clone_failures = 0
+        self._unscorable_baselines = 0
+        self._heuristic_actions_retained = 0
+        self._overrides = 0
+        self._override_advantage_total = 0.0
 
     @property
     def total_simulator_calls(self) -> int:
         return self._total_simulator_calls
+
+    def telemetry(self) -> dict[str, float | int]:
+        return {
+            "card_reward_decisions": self._card_reward_decisions,
+            "candidate_actions_scored": self._candidate_actions_scored,
+            "clone_failures": self._clone_failures,
+            "unscorable_baselines": self._unscorable_baselines,
+            "heuristic_actions_retained": self._heuristic_actions_retained,
+            "overrides": self._overrides,
+            "override_advantage_total": self._override_advantage_total,
+        }
 
     def __call__(self, observation: Observation, step: int = 0) -> Action:
         return self._fallback(observation, step)
@@ -854,8 +872,10 @@ class A20CloneValueCardRewardPolicy:
         ]
         if not candidates:
             return self._fallback(observation, 0)
+        self._card_reward_decisions += 1
         baseline = self._fallback(observation, 0)
         if baseline not in candidates:
+            self._unscorable_baselines += 1
             return baseline
         device = next(self._value_model.parameters()).device
         values: dict[Action, float] = {}
@@ -865,6 +885,7 @@ class A20CloneValueCardRewardPolicy:
                 clone = environment.clone()
                 next_observation, _, _, _, _ = clone.step(action)
                 self._total_simulator_calls += 1
+                self._candidate_actions_scored += 1
                 features = torch.tensor(
                     [encode_online_observation(next_observation)],
                     dtype=torch.float32,
@@ -874,10 +895,15 @@ class A20CloneValueCardRewardPolicy:
                     _, _, floor_value = self._value_model(features)
                 values[action] = float(floor_value[0].cpu())
             except Exception:
+                self._clone_failures += 1
                 continue
         if baseline not in values:
+            self._unscorable_baselines += 1
             return baseline
         best = max(values, key=values.get)
         if best is baseline or values[best] - values[baseline] < self._override_margin:
+            self._heuristic_actions_retained += 1
             return baseline
+        self._overrides += 1
+        self._override_advantage_total += values[best] - values[baseline]
         return best
