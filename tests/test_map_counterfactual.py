@@ -14,6 +14,7 @@ from sts_env.training.map_counterfactual import (
     validate_map_counterfactual_corpus,
     validate_map_counterfactual_record,
 )
+from sts_env.training.map_counterfactual_diagnostics import diagnose_map_counterfactual_corpus
 from sts_env.types import Action, ActionKind, MapNodeView, Observation, Phase, PlayerView
 
 
@@ -186,6 +187,44 @@ class MapCounterfactualTests(unittest.TestCase):
             result = validate_map_counterfactual_corpus(root)
         self.assertTrue(result["valid"])
         self.assertEqual(result["records"], 1)
+
+    def test_diagnostic_accepts_a_contrasting_complete_pilot(self) -> None:
+        record = evaluate_map_counterfactuals(
+            FakeMapEnvironment(),
+            seed=123,
+            decision_index=4,
+            behavior_action=LEFT,
+            rollout_policy_factory=FirstLegalPolicy,
+        ).to_dict()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            records_path = root / "records.jsonl"
+            records_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+            digest = hashlib.sha256(records_path.read_bytes()).hexdigest()
+            (root / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "records": {"path": "records.jsonl", "sha256": digest},
+                        "protocol": "map-counterfactual-rollouts",
+                        "schema_version": 1,
+                        "ascension": 20,
+                        "seed_range": [123, 123],
+                        "seed_range_name": "test",
+                        "particles_per_action": 2,
+                        "neow_history": "full",
+                        "act1_boss_history": "all_seen",
+                        "final_act_unlocked": True,
+                        "rollout_max_steps": 4,
+                        "counts": {"1": 1},
+                        "errors": [],
+                        "complete": True,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = diagnose_map_counterfactual_corpus(root, min_records=1)
+        self.assertTrue(result["scale_gate"]["eligible"])
+        self.assertEqual(result["counterfactual_contrast"]["groups_with_final_floor_contrast"], 1)
 
 
 if __name__ == "__main__":

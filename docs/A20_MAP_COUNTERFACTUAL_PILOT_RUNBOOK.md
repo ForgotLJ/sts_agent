@@ -66,10 +66,15 @@ python scripts/collect-map-counterfactual-corpus.py \
 
 python scripts/validate-map-counterfactual-corpus.py \
   --input "$OUTPUT" --require-complete
+
+python scripts/diagnose-map-counterfactual-corpus.py \
+  --input "$OUTPUT" \
+  --output "$OUTPUT/diagnostics.json" \
+  --min-records 16 --min-contrasting-fraction 0.20
 ```
 
 ## Required Report
 
-Report the tag commit, checkpoint SHA-256, test result, Lightspeed result, collection wall time, and the complete `manifest.json` plus validator JSON. Explicitly report `complete`, `counts`, `errors`, `records.sha256`, `records`, and `act_counts`.
+Report the tag commit, checkpoint SHA-256, test result, Lightspeed result, collection wall time, and the complete `manifest.json` plus validator and diagnostic JSON. Explicitly report `complete`, `counts`, `errors`, `records.sha256`, `records`, `act_counts`, counterfactual contrast, behavior regret, and `scale_gate`.
 
 Stop after this report. Keep `$WORKTREE` and `$OUTPUT` intact for audit. Do not start the 300-per-act collection, training, profile, smoke, formal evaluation, or replication.

@@ -23,6 +23,11 @@ python scripts/collect-map-counterfactual-corpus.py \
 python scripts/validate-map-counterfactual-corpus.py \
   --input /scratch/sts_agent/experiments/map_counterfactual_act1_pilot \
   --require-complete
+
+python scripts/diagnose-map-counterfactual-corpus.py \
+  --input /scratch/sts_agent/experiments/map_counterfactual_act1_pilot \
+  --output /scratch/sts_agent/experiments/map_counterfactual_act1_pilot/diagnostics.json \
+  --min-records 16 --min-contrasting-fraction 0.20
 ```
 
 The pilot writes only simulator-generated records and a manifest. It does not train a policy. Do not use formal evaluation seeds, and do not mix a failed/incomplete collection with a later corpus.
