@@ -48,3 +48,30 @@ python scripts\evaluate-a20-online-card-policy.py `
 ```
 
 This command requires a compatible built `sts_lightspeed` extension. Its result is diagnostic evidence, not a promotion gate or a claim of A20 Heart performance. Keep raw run-history data out of source control until its license and redistribution terms are confirmed.
+
+## Clone-Value Candidate
+
+The direct behavior-cloning checkpoint is retained as a negative control. It passed offline action agreement but was rejected by a frozen 512-seed Lightspeed comparison: its paired final-floor difference was `-2.232421875` with 95% CI `[-2.666015625, -1.81640625]`.
+
+The next candidate uses all filtered Ironclad A20 attempts, not only Heart wins. Value examples are encoded after each logged card choice so they match the state produced by a simulator clone after a candidate action. At runtime, `A20CloneValueCardRewardPolicy` clones each legal card-reward action, scores the successor with the value model, and overrides the heuristic only when the predicted normalized final-floor advantage reaches the configured margin.
+
+Train the value model from the A20 Ironclad attempts:
+
+```powershell
+python scripts\train-a20-online-value.py `
+  --input D:\Project\STS\Data\formatted_a20h_2020-07-30\a20_runs_IRONCLAD.jsonl `
+  --output-dir D:\Project\STS\Data\a20_online_value_ironclad_v3 `
+  --epochs 8 --batch-size 1024 --seed 17 --device cpu
+```
+
+The clone-value simulator command is intentionally separate from the rejected behavior-cloning command:
+
+```powershell
+python scripts\evaluate-a20-clone-value-policy.py `
+  --checkpoint D:\Project\STS\Data\a20_online_value_ironclad_v3\a20-online-value-IRONCLAD.pt `
+  --seed-start 2302000 --seed-count 32 `
+  --override-margin 0.05 `
+  --output D:\Project\STS\Data\a20_online_value_ironclad_v3\smoke-2302000-2302031.json
+```
+
+This smoke must pass all safety fields before any larger diagnostic. The value model is still observational: a positive offline AUC does not establish a causal action advantage, so simulator evaluation remains mandatory.

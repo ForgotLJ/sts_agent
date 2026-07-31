@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import unittest
 
 import torch
@@ -8,12 +9,16 @@ from sts_env.training.a20_online_card_ranking import (
     A20OnlineCardRanker,
     A20OnlineCardRankingConfig,
     A20OnlineCardRewardPolicy,
+    A20CloneValueCardRewardPolicy,
+    A20OnlineValueNetwork,
     SKIP_CARD,
     build_online_card_choice_examples,
+    build_online_value_examples,
     canonical_card_id,
     card_reward_candidate_id,
     encode_online_observation,
     encode_run_summary_card_state,
+    train_online_value_model,
     train_online_card_ranker,
 )
 from sts_env.types import Action, ActionKind, Observation, Phase, PlayerView
@@ -121,6 +126,56 @@ class A20OnlineCardRankingTests(unittest.TestCase):
         model, metrics = train_online_card_ranker(examples, epochs=1, batch_size=16)
         self.assertIsInstance(model, A20OnlineCardRanker)
         self.assertGreater(metrics["test"]["top1_accuracy"], 0.0)
+
+    def test_value_examples_use_the_same_state_contract(self) -> None:
+        examples = build_online_value_examples(sample_record())
+        self.assertEqual(len(examples), 2)
+        self.assertEqual(len(examples[0].state_features), A20OnlineCardRankingConfig().feature_dimension)
+        self.assertEqual(examples[0].heart_win, 1.0)
+
+    def test_value_example_matches_live_post_choice_state(self) -> None:
+        record = sample_record("Pommel Strike")
+        post_choice = replace(
+            card_reward_observation(),
+            deck=(
+                ("Strike_R", 5),
+                ("Defend_R", 4),
+                ("Bash", 1),
+                ("PommelStrike", 1),
+            ),
+        )
+        self.assertEqual(
+            build_online_value_examples(record)[0].state_features,
+            encode_online_observation(post_choice),
+        )
+
+    def test_small_value_model_training_is_finite(self) -> None:
+        examples = []
+        for index in range(100):
+            record = sample_record()
+            record["run_id"] = f"value-run-{index}"
+            record["heart_victory"] = index % 2 == 0
+            record["victory"] = index % 3 != 0
+            record["floor_reached"] = 57 - index % 5
+            examples.extend(build_online_value_examples(record))
+        model, metrics = train_online_value_model(examples, epochs=1, batch_size=16)
+        self.assertIsInstance(model, A20OnlineValueNetwork)
+        self.assertGreater(metrics["test"]["examples"], 0.0)
+
+    def test_clone_value_policy_falls_back_when_clone_is_unavailable(self) -> None:
+        class BrokenCloneEnvironment:
+            observation = card_reward_observation(
+                Action(ActionKind.CHOOSE_CARD, source_id="pommelstrike", label="Pommel Strike"),
+                Action(ActionKind.LEAVE, source_id="skip_card", option_type="skip_card"),
+            )
+
+            def clone(self):
+                raise RuntimeError("clone unavailable")
+
+        model = A20OnlineValueNetwork(A20OnlineCardRankingConfig().feature_dimension, 8)
+        policy = A20CloneValueCardRewardPolicy(model)
+        selected = policy.select(BrokenCloneEnvironment())
+        self.assertIn(selected, BrokenCloneEnvironment.observation.legal_actions)
 
 
 if __name__ == "__main__":
