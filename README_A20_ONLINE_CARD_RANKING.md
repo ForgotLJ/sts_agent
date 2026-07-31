@@ -75,3 +75,5 @@ python scripts\evaluate-a20-clone-value-policy.py `
 ```
 
 This smoke must pass all safety fields before any larger diagnostic. The value model is still observational: a positive offline AUC does not establish a causal action advantage, so simulator evaluation remains mandatory.
+
+When selecting a new override margin, first run a `--record-only` profile on development-only seeds. It executes the same candidate clones and reports the best-over-heuristic value-advantage distribution, but always returns the heuristic action. Select the margin from that distribution before any fresh effect evaluation; do not tune it on a held-out performance range.

@@ -828,12 +828,14 @@ class A20CloneValueCardRewardPolicy:
         value_model: A20OnlineValueNetwork,
         fallback: Callable[[Observation, int], Action] | None = None,
         override_margin: float = 0.05,
+        record_only: bool = False,
     ) -> None:
         if override_margin < 0:
             raise ValueError("clone-value override margin must be non-negative")
         self._value_model = value_model
         self._fallback = fallback or HeuristicPolicy()
         self._override_margin = override_margin
+        self._record_only = record_only
         self._total_simulator_calls = 0
         self._card_reward_decisions = 0
         self._candidate_actions_scored = 0
@@ -842,6 +844,8 @@ class A20CloneValueCardRewardPolicy:
         self._heuristic_actions_retained = 0
         self._overrides = 0
         self._override_advantage_total = 0.0
+        self._value_best_matches_heuristic = 0
+        self._best_advantages: list[float] = []
 
     @property
     def total_simulator_calls(self) -> int:
@@ -856,7 +860,12 @@ class A20CloneValueCardRewardPolicy:
             "heuristic_actions_retained": self._heuristic_actions_retained,
             "overrides": self._overrides,
             "override_advantage_total": self._override_advantage_total,
+            "value_best_matches_heuristic": self._value_best_matches_heuristic,
         }
+
+    @property
+    def best_advantages(self) -> tuple[float, ...]:
+        return tuple(self._best_advantages)
 
     def __call__(self, observation: Observation, step: int = 0) -> Action:
         return self._fallback(observation, step)
@@ -901,9 +910,13 @@ class A20CloneValueCardRewardPolicy:
             self._unscorable_baselines += 1
             return baseline
         best = max(values, key=values.get)
-        if best is baseline or values[best] - values[baseline] < self._override_margin:
+        advantage = values[best] - values[baseline]
+        self._best_advantages.append(advantage)
+        if best is baseline:
+            self._value_best_matches_heuristic += 1
+        if self._record_only or best is baseline or advantage < self._override_margin:
             self._heuristic_actions_retained += 1
             return baseline
         self._overrides += 1
-        self._override_advantage_total += values[best] - values[baseline]
+        self._override_advantage_total += advantage
         return best

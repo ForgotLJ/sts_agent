@@ -178,6 +178,7 @@ class A20OnlineCardRankingTests(unittest.TestCase):
         self.assertIn(selected, BrokenCloneEnvironment.observation.legal_actions)
         self.assertEqual(policy.telemetry()["card_reward_decisions"], 1)
         self.assertEqual(policy.telemetry()["clone_failures"], 2)
+        self.assertEqual(policy.best_advantages, ())
 
 
 if __name__ == "__main__":

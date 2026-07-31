@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import statistics
 import sys
 from typing import Any
 
@@ -35,6 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-steps", type=int, default=5000)
     parser.add_argument("--bootstrap-samples", type=int, default=10000)
     parser.add_argument("--override-margin", type=float, default=0.05)
+    parser.add_argument("--record-only", action="store_true")
     parser.add_argument(
         "--neow-history",
         choices=("full", "limited", "skipped"),
@@ -83,6 +85,7 @@ def main() -> int:
         policy = A20CloneValueCardRewardPolicy(
             value_model,
             override_margin=args.override_margin,
+            record_only=args.record_only,
         )
         candidate_policies.append(policy)
         return policy
@@ -119,7 +122,19 @@ def main() -> int:
             telemetry_totals[key] = telemetry_totals.get(key, 0.0) + float(value)
     decision_count = telemetry_totals.get("card_reward_decisions", 0.0)
     override_count = telemetry_totals.get("overrides", 0.0)
-    candidate_telemetry = {
+    advantages = sorted(
+        advantage
+        for policy in candidate_policies
+        for advantage in policy.best_advantages
+    )
+
+    def percentile(fraction: float) -> float:
+        if not advantages:
+            return 0.0
+        index = round((len(advantages) - 1) * fraction)
+        return advantages[index]
+
+    candidate_telemetry: dict[str, Any] = {
         **telemetry_totals,
         "episodes": len(candidate_policies),
         "mean_candidates_per_card_reward": (
@@ -133,6 +148,16 @@ def main() -> int:
             if override_count
             else 0.0
         ),
+        "mean_best_advantage": statistics.fmean(advantages) if advantages else 0.0,
+        "best_advantage_quantiles": {
+            "p50": percentile(0.50),
+            "p75": percentile(0.75),
+            "p80": percentile(0.80),
+            "p90": percentile(0.90),
+            "p95": percentile(0.95),
+            "p99": percentile(0.99),
+            "max": advantages[-1] if advantages else 0.0,
+        },
     }
     payload: dict[str, Any] = {
         "protocol": "a20-clone-value-card-reward-paired-lightspeed-evaluation",
@@ -148,6 +173,7 @@ def main() -> int:
         "seed_count": args.seed_count,
         "policy_seed": args.policy_seed,
         "override_margin": args.override_margin,
+        "record_only": args.record_only,
         "max_steps": args.max_steps,
         "bootstrap_samples": args.bootstrap_samples,
         "neow_history": args.neow_history,
