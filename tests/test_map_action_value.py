@@ -16,6 +16,7 @@ from torch import nn
 
 from sts_env.training.map_action_value import (
     A20MapActionValuePolicy,
+    MapActionValueExample,
     MapActionFeatureEncoder,
     load_map_action_value_examples,
     load_map_action_value_model,
@@ -165,6 +166,21 @@ def write_corpus(root: Path, records: int = 120) -> None:
 
 
 class MapActionValueTests(unittest.TestCase):
+    def test_first_map_decision_at_floor_zero_is_valid(self) -> None:
+        example = MapActionValueExample(
+            root_seed=1,
+            decision_index=0,
+            act=1,
+            floor=0,
+            candidate_index=0,
+            is_behavior_action=True,
+            features=(0.0,),
+            mean_final_floor=10.0,
+            mean_environment_return=0.0,
+            final_floor_variance=0.0,
+        )
+        self.assertEqual(example.floor, 0)
+
     def test_encoder_uses_candidate_route_topology(self) -> None:
         encoder = MapActionFeatureEncoder()
         left = encoder.encode(map_observation(), LEFT)

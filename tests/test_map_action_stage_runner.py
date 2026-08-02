@@ -43,7 +43,7 @@ class MapActionStageRunnerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(output.exists())
         payload = json.loads(result.stdout)
-        self.assertEqual(payload["protocol"], "a20-map-action-act1-stage-v2-dry-run")
+        self.assertEqual(payload["protocol"], "a20-map-action-act1-stage-v3-dry-run")
         self.assertEqual(
             [step["name"] for step in payload["steps"]],
             [

@@ -64,7 +64,7 @@ class MapActionValueExample:
     def __post_init__(self) -> None:
         if self.root_seed < 0 or self.decision_index < 0:
             raise ValueError("map-action example identity must be non-negative")
-        if self.act not in {1, 2, 3} or self.floor <= 0 or self.candidate_index < 0:
+        if self.act not in {1, 2, 3} or self.floor < 0 or self.candidate_index < 0:
             raise ValueError("map-action example location is invalid")
         if not self.features or not all(math.isfinite(value) for value in self.features):
             raise ValueError("map-action example features must be finite")

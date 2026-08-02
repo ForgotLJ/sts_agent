@@ -120,3 +120,14 @@ python scripts/run-a20-map-action-stage.py \
 The output directory must not already exist. A stopped stage is a valid result; inspect `stage.json` and its referenced artifacts rather than rerunning a failed seed range with modified settings.
 
 Use `--dry-run` with the same three required paths to inspect the fixed seed ranges, devices, training settings, and promotion gates without accessing the checkpoint, pilot corpus, or simulator.
+
+If collection completed but a later local stage failed, pass the validated corpus to a new output directory with `--reuse-corpus`. This resumes only after corpus validation and never recollects or mutates the original seed range:
+
+```bash
+python scripts/run-a20-map-action-stage.py \
+  --reuse-corpus /scratch/sts_agent/experiments/map_action_stage_v2/corpus \
+  --pilot /scratch/sts_agent/experiments/map_counterfactual_act1_pilot \
+  --output /scratch/sts_agent/experiments/map_action_stage_v3 \
+  --card-checkpoint /scratch/sts_agent/experiments/a20_online_value_ironclad_v3/a20-online-value-IRONCLAD.pt \
+  --rollout-device cpu --training-device cuda --evaluation-device cpu
+```

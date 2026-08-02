@@ -26,7 +26,7 @@ from sts_env.training.map_counterfactual import validate_map_counterfactual_corp
 CARD_MARGIN = 0.016514360904693604
 CARD_CHECKPOINT_SHA256 = "8c7f053c64b9bd57ccba6ae64ecba8586a29d37dfaf1842f00d083b07b113a3c"
 BOOTSTRAP_SAMPLES = 10_000
-STAGE_PROTOCOL = "a20-map-action-act1-stage-v2"
+STAGE_PROTOCOL = "a20-map-action-act1-stage-v3"
 TRAINED_ACTS = (1,)
 COLLECTION_SEED_START = 2_322_000
 COLLECTION_SEED_COUNT = 4_096
@@ -49,6 +49,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rollout-device", default="cpu")
     parser.add_argument("--training-device", default="cuda")
     parser.add_argument("--evaluation-device", default="cpu")
+    parser.add_argument(
+        "--reuse-corpus",
+        type=Path,
+        help="Reuse a complete Act 1 corpus from a prior stage without recollecting its frozen seed range.",
+    )
     parser.add_argument("--bootstrap-samples", type=int, default=10000)
     parser.add_argument("--collection-per-act", type=int, default=300)
     parser.add_argument("--collection-particles", type=int, default=2)
@@ -164,44 +169,60 @@ def main() -> int:
     if not pilot_diagnostic["scale_gate"]["eligible"]:
         return persist("stopped_pilot_gate", pilot_diagnostic=pilot_diagnostic)
 
-    corpus = args.output / "corpus"
-    collection_command = [
-        sys.executable,
-        str(PROJECT_ROOT / "scripts" / "collect-map-counterfactual-corpus.py"),
-        "--checkpoint",
-        str(card_checkpoint),
-        "--output",
-        str(corpus),
-        "--seed-start",
-        str(COLLECTION_SEED_START),
-        "--seed-count",
-        str(COLLECTION_SEED_COUNT),
-        "--seed-range-name",
-        "map_act1_collection_v2",
-        "--acts",
-        "1",
-        "--per-act",
-        "300",
-        "--particles-per-action",
-        "2",
-        "--max-decisions-per-seed",
-        "1",
-        "--rollout-max-steps",
-        "5000",
-        "--override-margin",
-        str(CARD_MARGIN),
-        "--device",
-        args.rollout_device,
-    ]
-    collection_step = step("collect_corpus", collection_command)
-    collection_returncode = _run(collection_command)
-    finish_step(collection_step, returncode=collection_returncode)
-    if collection_returncode != 0:
-        return persist(
-            "failed_collection_command",
-            exit_code=1,
-            returncode=collection_returncode,
+    corpus = args.reuse_corpus.resolve() if args.reuse_corpus else args.output / "corpus"
+    if args.reuse_corpus:
+        reuse_step = step("reuse_corpus", ["reuse", str(corpus)])
+        corpus_validation = validate_map_counterfactual_corpus(corpus)
+        reuse_errors = _reusable_corpus_errors(corpus, corpus_validation, card_hash)
+        (args.output / "corpus-validation.json").write_text(
+            json.dumps(corpus_validation, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
         )
+        finish_step(reuse_step)
+        if reuse_errors:
+            return persist(
+                "stopped_reused_corpus_validation",
+                errors=reuse_errors,
+                corpus_validation=corpus_validation,
+            )
+    else:
+        collection_command = [
+            sys.executable,
+            str(PROJECT_ROOT / "scripts" / "collect-map-counterfactual-corpus.py"),
+            "--checkpoint",
+            str(card_checkpoint),
+            "--output",
+            str(corpus),
+            "--seed-start",
+            str(COLLECTION_SEED_START),
+            "--seed-count",
+            str(COLLECTION_SEED_COUNT),
+            "--seed-range-name",
+            "map_act1_collection_v2",
+            "--acts",
+            "1",
+            "--per-act",
+            "300",
+            "--particles-per-action",
+            "2",
+            "--max-decisions-per-seed",
+            "1",
+            "--rollout-max-steps",
+            "5000",
+            "--override-margin",
+            str(CARD_MARGIN),
+            "--device",
+            args.rollout_device,
+        ]
+        collection_step = step("collect_corpus", collection_command)
+        collection_returncode = _run(collection_command)
+        finish_step(collection_step, returncode=collection_returncode)
+        if collection_returncode != 0:
+            return persist(
+                "failed_collection_command",
+                exit_code=1,
+                returncode=collection_returncode,
+            )
     corpus_validation = validate_map_counterfactual_corpus(corpus)
     (args.output / "corpus-validation.json").write_text(
         json.dumps(corpus_validation, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -443,6 +464,7 @@ def _frozen_parameters(args: argparse.Namespace) -> dict[str, Any]:
             "max_decisions_per_seed": 1,
             "rollout_max_steps": args.collection_rollout_max_steps,
             "device": args.rollout_device,
+            "reuse_corpus": str(args.reuse_corpus.resolve()) if args.reuse_corpus else None,
         },
         "training": {
             "epochs": args.training_epochs,
@@ -501,6 +523,41 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def _reusable_corpus_errors(
+    corpus: Path,
+    validation: dict[str, Any],
+    card_hash: str,
+) -> list[str]:
+    errors = list(validation.get("errors") or [])
+    if not validation.get("valid") or not validation.get("complete"):
+        errors.append("reusable corpus is not complete and valid")
+    try:
+        manifest = load_json(corpus / "manifest.json")
+        expected_seed_range = [
+            COLLECTION_SEED_START,
+            COLLECTION_SEED_START + COLLECTION_SEED_COUNT - 1,
+        ]
+        if manifest.get("seed_range_name") != "map_act1_collection_v2":
+            errors.append("reusable corpus seed range name differs")
+        if manifest.get("seed_range") != expected_seed_range:
+            errors.append("reusable corpus seed range differs")
+        if dict(manifest.get("counts") or {}) != {"1": 300}:
+            errors.append("reusable corpus Act 1 quota differs")
+        if str(dict(manifest.get("checkpoint") or {}).get("sha256")) != card_hash:
+            errors.append("reusable corpus checkpoint differs")
+        if int(manifest.get("particles_per_action", 0)) != 2:
+            errors.append("reusable corpus particle count differs")
+        if int(manifest.get("max_decisions_per_seed", 0)) != 1:
+            errors.append("reusable corpus decision quota differs")
+        if int(manifest.get("rollout_max_steps", 0)) != 5000:
+            errors.append("reusable corpus rollout horizon differs")
+        if float(manifest.get("override_margin")) != CARD_MARGIN:
+            errors.append("reusable corpus override margin differs")
+    except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError) as error:
+        errors.append(f"reusable corpus manifest is invalid: {error}")
+    return errors
 
 
 def _evaluation_command(
