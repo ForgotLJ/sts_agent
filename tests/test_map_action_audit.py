@@ -60,6 +60,7 @@ def evaluation(range_name: str, seed_start: int, candidate_gain: int) -> dict[st
         "map_checkpoint": {"sha256": MAP_SHA},
         "card_checkpoint": {"sha256": CARD_SHA},
         "map_policy_trained_acts": [1],
+        "map_policy_trained_floor_range": [0, 0],
         "candidate": {
             "method": "a20-map-action-value",
             "summary": summary(candidate_episodes, 0.25),
@@ -148,6 +149,7 @@ class MapActionAuditTests(unittest.TestCase):
                 expected_formal_range_name="map_act1_value_formal_v2",
                 expected_replication_range_name="map_act1_value_replication_v2",
                 expected_trained_acts=frozenset({1}),
+                expected_trained_floor_range=(0, 0),
                 bootstrap_samples=32,
             )
         self.assertEqual(result["verdict"], "replicated_improved")

@@ -249,6 +249,19 @@ class MapActionValueTests(unittest.TestCase):
         self.assertEqual(policy.telemetry()["untrained_act_map_decisions"], 1)
         self.assertEqual(policy.telemetry()["candidate_actions_scored"], 0)
 
+    def test_policy_never_scores_a_floor_outside_training_range(self) -> None:
+        policy = A20MapActionValuePolicy(
+            RightRouteValueModel(),
+            MapActionFeatureEncoder(),
+            fallback=FirstLegalPolicy(),
+            override_margin=0.0,
+            allowed_floor_range=(0, 0),
+        )
+        action = policy.select(FakeMapEnvironment())
+        self.assertEqual(action, LEFT)
+        self.assertEqual(policy.telemetry()["map_decisions"], 0)
+        self.assertEqual(policy.telemetry()["untrained_floor_map_decisions"], 1)
+
     def test_small_training_and_checkpoint_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -314,6 +327,7 @@ class MapActionValueTests(unittest.TestCase):
             payload = json.loads(frozen_evaluation.read_text(encoding="utf-8"))
         self.assertEqual(payload["protocol"], "a20-map-action-value-offline-evaluation")
         self.assertEqual(payload["trained_acts"], [1])
+        self.assertEqual(payload["trained_floor_range"], [3, 3])
         self.assertGreater(payload["metrics"]["test"]["examples"], 0.0)
 
 

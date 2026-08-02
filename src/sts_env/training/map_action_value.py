@@ -297,6 +297,7 @@ class A20MapActionValuePolicy:
         override_margin: float,
         record_only: bool = False,
         allowed_acts: Iterable[int] | None = None,
+        allowed_floor_range: tuple[int, int] | None = None,
     ) -> None:
         if override_margin < 0:
             raise ValueError("map-action override margin must be non-negative")
@@ -307,14 +308,26 @@ class A20MapActionValuePolicy:
             not normalized_acts or not normalized_acts.issubset({1, 2, 3})
         ):
             raise ValueError("map-action allowed acts must be a non-empty subset of 1, 2, and 3")
+        if allowed_floor_range is not None:
+            if (
+                len(allowed_floor_range) != 2
+                or allowed_floor_range[0] < 0
+                or allowed_floor_range[1] < allowed_floor_range[0]
+            ):
+                raise ValueError("map-action allowed floor range is invalid")
+            normalized_floor_range = (int(allowed_floor_range[0]), int(allowed_floor_range[1]))
+        else:
+            normalized_floor_range = None
         self._model = model
         self._encoder = encoder
         self._fallback = fallback or HeuristicPolicy()
         self._override_margin = override_margin
         self._record_only = record_only
         self._allowed_acts = normalized_acts
+        self._allowed_floor_range = normalized_floor_range
         self._map_decisions = 0
         self._untrained_act_map_decisions = 0
+        self._untrained_floor_map_decisions = 0
         self._candidate_actions_scored = 0
         self._unscorable_baselines = 0
         self._model_failures = 0
@@ -336,6 +349,7 @@ class A20MapActionValuePolicy:
         return {
             "map_decisions": self._map_decisions,
             "untrained_act_map_decisions": self._untrained_act_map_decisions,
+            "untrained_floor_map_decisions": self._untrained_floor_map_decisions,
             "candidate_actions_scored": self._candidate_actions_scored,
             "unscorable_baselines": self._unscorable_baselines,
             "model_failures": self._model_failures,
@@ -376,6 +390,11 @@ class A20MapActionValuePolicy:
             return baseline
         if self._allowed_acts is not None and observation.act not in self._allowed_acts:
             self._untrained_act_map_decisions += 1
+            return baseline
+        if self._allowed_floor_range is not None and not (
+            self._allowed_floor_range[0] <= observation.floor <= self._allowed_floor_range[1]
+        ):
+            self._untrained_floor_map_decisions += 1
             return baseline
         self._map_decisions += 1
         if baseline not in candidates:

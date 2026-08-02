@@ -80,6 +80,15 @@ MAP_ACTION_RANGES = (
         512,
         "Act 1 map policy independent replication",
     ),
+    MapActionSeedRange("map_act1_value_profile_v4", 2_332_000, 128, "Act 1 floor-gated map margin profile"),
+    MapActionSeedRange("map_act1_value_smoke_v4", 2_333_000, 32, "Act 1 floor-gated map policy smoke"),
+    MapActionSeedRange("map_act1_value_formal_v4", 2_334_000, 512, "Act 1 floor-gated map policy formal evaluation"),
+    MapActionSeedRange(
+        "map_act1_value_replication_v4",
+        2_335_000,
+        512,
+        "Act 1 floor-gated map policy independent replication",
+    ),
 )
 
 MAP_ACTION_COLLECTION_RANGE_NAMES = frozenset(
@@ -95,6 +104,10 @@ MAP_ACTION_EVALUATION_RANGE_NAMES = frozenset(
         "map_act1_value_smoke_v2",
         "map_act1_value_formal_v2",
         "map_act1_value_replication_v2",
+        "map_act1_value_profile_v4",
+        "map_act1_value_smoke_v4",
+        "map_act1_value_formal_v4",
+        "map_act1_value_replication_v4",
     }
 )
 

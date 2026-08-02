@@ -92,12 +92,14 @@ class MapActionStageTests(unittest.TestCase):
             "best_advantage_quantiles": {"p80": 0.024},
         }
         profile["map_policy_trained_acts"] = [1]
+        profile["map_policy_trained_floor_range"] = [0, 0]
         selected = select_profile_margin(
             profile,
             expected_map_checkpoint_sha256=MAP_SHA,
             expected_card_checkpoint_sha256=CARD_SHA,
             expected_range_name="map_act1_value_profile_v2",
             expected_trained_acts=frozenset({1}),
+            expected_trained_floor_range=(0, 0),
         )
         self.assertEqual(selected["profile_seed_range_name"], "map_act1_value_profile_v2")
 

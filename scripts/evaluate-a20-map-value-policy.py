@@ -127,6 +127,24 @@ def _trained_acts(checkpoint_metadata: dict[str, Any]) -> frozenset[int] | None:
     return acts
 
 
+def _trained_floor_range(checkpoint_metadata: dict[str, Any]) -> tuple[int, int] | None:
+    metadata = dict(checkpoint_metadata.get("metadata") or {})
+    values = metadata.get("trained_floor_range")
+    if values is None:
+        return None
+    try:
+        floor_range = tuple(int(value) for value in values)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"map checkpoint trained floor range is invalid: {error}") from error
+    if (
+        len(floor_range) != 2
+        or floor_range[0] < 0
+        or floor_range[1] < floor_range[0]
+    ):
+        raise ValueError("map checkpoint trained floor range is invalid")
+    return floor_range
+
+
 def main() -> int:
     args = parse_args()
     if args.seed_start < 0 or args.seed_count <= 0 or args.seed_start + args.seed_count > 2**64:
@@ -155,6 +173,7 @@ def main() -> int:
         args.device,
     )
     trained_acts = _trained_acts(map_checkpoint_metadata)
+    trained_floor_range = _trained_floor_range(map_checkpoint_metadata)
     card_model = load_online_value_model(card_checkpoint, args.device)
     seeds = tuple(range(args.seed_start, args.seed_start + args.seed_count))
     candidate_map_policies: list[A20MapActionValuePolicy] = []
@@ -183,6 +202,7 @@ def main() -> int:
             override_margin=args.override_margin,
             record_only=args.record_only,
             allowed_acts=trained_acts,
+            allowed_floor_range=trained_floor_range,
         )
         candidate_card_policies.append(card_policy)
         candidate_map_policies.append(map_policy)
@@ -242,6 +262,9 @@ def main() -> int:
         "card_checkpoint": {"path": str(card_checkpoint), "sha256": sha256_file(card_checkpoint)},
         "map_checkpoint_metadata": map_checkpoint_metadata,
         "map_policy_trained_acts": sorted(trained_acts) if trained_acts is not None else None,
+        "map_policy_trained_floor_range": (
+            list(trained_floor_range) if trained_floor_range is not None else None
+        ),
         "seed_range": [args.seed_start, args.seed_start + args.seed_count - 1],
         "seed_range_name": args.seed_range_name,
         "seed_count": args.seed_count,

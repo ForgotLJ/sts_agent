@@ -43,7 +43,7 @@ class MapActionStageRunnerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(output.exists())
         payload = json.loads(result.stdout)
-        self.assertEqual(payload["protocol"], "a20-map-action-act1-stage-v3-dry-run")
+        self.assertEqual(payload["protocol"], "a20-map-action-act1-stage-v4-dry-run")
         self.assertEqual(
             [step["name"] for step in payload["steps"]],
             [
@@ -62,9 +62,10 @@ class MapActionStageRunnerTests(unittest.TestCase):
         self.assertEqual(payload["frozen_parameters"]["collection"]["seed_start"], 2_322_000)
         self.assertEqual(payload["frozen_parameters"]["collection"]["per_act"], 300)
         self.assertEqual(payload["frozen_parameters"]["collection"]["acts"], [1])
+        self.assertEqual(payload["frozen_parameters"]["trained_floor_range"], [0, 0])
         self.assertEqual(
             payload["frozen_parameters"]["evaluation"]["formal"]["seed_start"],
-            2_330_000,
+            2_334_000,
         )
         self.assertEqual(payload["frozen_parameters"]["evaluation"]["formal"]["seed_count"], 512)
         self.assertEqual(payload["frozen_parameters"]["evaluation"]["margin_quantile"], "p80")

@@ -26,14 +26,15 @@ from sts_env.training.map_counterfactual import validate_map_counterfactual_corp
 CARD_MARGIN = 0.016514360904693604
 CARD_CHECKPOINT_SHA256 = "8c7f053c64b9bd57ccba6ae64ecba8586a29d37dfaf1842f00d083b07b113a3c"
 BOOTSTRAP_SAMPLES = 10_000
-STAGE_PROTOCOL = "a20-map-action-act1-stage-v3"
+STAGE_PROTOCOL = "a20-map-action-act1-stage-v4"
 TRAINED_ACTS = (1,)
+TRAINED_FLOOR_RANGE = (0, 0)
 COLLECTION_SEED_START = 2_322_000
 COLLECTION_SEED_COUNT = 4_096
-PROFILE_SEED_START = 2_328_000
-SMOKE_SEED_START = 2_329_000
-FORMAL_SEED_START = 2_330_000
-REPLICATION_SEED_START = 2_331_000
+PROFILE_SEED_START = 2_332_000
+SMOKE_SEED_START = 2_333_000
+FORMAL_SEED_START = 2_334_000
+REPLICATION_SEED_START = 2_335_000
 TRAINING_SEED = 17
 
 _ACTIVE_STAGE: tuple[Path, dict[str, Any]] | None = None
@@ -81,6 +82,8 @@ def main() -> int:
         raise ValueError("map-stage learning rate is frozen")
     if args.bootstrap_samples != BOOTSTRAP_SAMPLES:
         raise ValueError("map-stage bootstrap samples are frozen at 10000")
+    if not args.reuse_corpus and not args.dry_run:
+        raise ValueError("Act 1 floor-gated stage requires --reuse-corpus")
     if args.dry_run:
         print(
             json.dumps(
@@ -280,16 +283,24 @@ def main() -> int:
     try:
         offline_evaluation = load_json(frozen_evaluation)
         trained_acts = tuple(int(value) for value in offline_evaluation["trained_acts"])
+        trained_floor_range = tuple(
+            int(value) for value in offline_evaluation["trained_floor_range"]
+        )
         act_counts = {
             str(act): int(count)
             for act, count in dict(offline_evaluation["corpus"]["act_counts"]).items()
         }
     except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError) as error:
         return persist("stopped_training_scope_validation", error=str(error))
-    if trained_acts != TRAINED_ACTS or act_counts != {"1": args.collection_per_act}:
+    if (
+        trained_acts != TRAINED_ACTS
+        or trained_floor_range != TRAINED_FLOOR_RANGE
+        or act_counts != {"1": args.collection_per_act}
+    ):
         return persist(
             "stopped_training_scope_validation",
             trained_acts=list(trained_acts),
+            trained_floor_range=list(trained_floor_range),
             act_counts=act_counts,
         )
     map_hash = sha256_file(checkpoint)
@@ -301,7 +312,7 @@ def main() -> int:
         profile,
         seed_start=PROFILE_SEED_START,
         seed_count=128,
-        range_name="map_act1_value_profile_v2",
+        range_name="map_act1_value_profile_v4",
         map_margin=0.0,
         device=args.evaluation_device,
         bootstrap_samples=args.bootstrap_samples,
@@ -318,8 +329,9 @@ def main() -> int:
             expected_map_checkpoint_sha256=map_hash,
             expected_card_checkpoint_sha256=card_hash,
             quantile="p80",
-            expected_range_name="map_act1_value_profile_v2",
+            expected_range_name="map_act1_value_profile_v4",
             expected_trained_acts=frozenset(TRAINED_ACTS),
+            expected_trained_floor_range=TRAINED_FLOOR_RANGE,
         )
     except ValueError as error:
         return persist("stopped_profile_validation", error=str(error))
@@ -337,7 +349,7 @@ def main() -> int:
         smoke,
         seed_start=SMOKE_SEED_START,
         seed_count=32,
-        range_name="map_act1_value_smoke_v2",
+        range_name="map_act1_value_smoke_v4",
         map_margin=float(margin["override_margin"]),
         device=args.evaluation_device,
         bootstrap_samples=args.bootstrap_samples,
@@ -350,11 +362,12 @@ def main() -> int:
     smoke_gate_step = step("smoke_gate")
     smoke_gate = map_evaluation_gate(
         load_json(smoke),
-        expected_range_name="map_act1_value_smoke_v2",
+        expected_range_name="map_act1_value_smoke_v4",
         expected_map_checkpoint_sha256=map_hash,
         expected_card_checkpoint_sha256=card_hash,
         require_effect=False,
         expected_trained_acts=frozenset(TRAINED_ACTS),
+        expected_trained_floor_range=TRAINED_FLOOR_RANGE,
     )
     (args.output / "smoke-gate.json").write_text(
         json.dumps(smoke_gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -371,7 +384,7 @@ def main() -> int:
         formal,
         seed_start=FORMAL_SEED_START,
         seed_count=512,
-        range_name="map_act1_value_formal_v2",
+        range_name="map_act1_value_formal_v4",
         map_margin=float(margin["override_margin"]),
         device=args.evaluation_device,
         bootstrap_samples=args.bootstrap_samples,
@@ -384,11 +397,12 @@ def main() -> int:
     formal_gate_step = step("formal_gate")
     formal_gate = map_evaluation_gate(
         load_json(formal),
-        expected_range_name="map_act1_value_formal_v2",
+        expected_range_name="map_act1_value_formal_v4",
         expected_map_checkpoint_sha256=map_hash,
         expected_card_checkpoint_sha256=card_hash,
         require_effect=True,
         expected_trained_acts=frozenset(TRAINED_ACTS),
+        expected_trained_floor_range=TRAINED_FLOOR_RANGE,
     )
     (args.output / "formal-gate.json").write_text(
         json.dumps(formal_gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -405,7 +419,7 @@ def main() -> int:
         replication,
         seed_start=REPLICATION_SEED_START,
         seed_count=512,
-        range_name="map_act1_value_replication_v2",
+        range_name="map_act1_value_replication_v4",
         map_margin=float(margin["override_margin"]),
         device=args.evaluation_device,
         bootstrap_samples=args.bootstrap_samples,
@@ -418,11 +432,12 @@ def main() -> int:
     replication_gate_step = step("replication_gate")
     replication_gate = map_evaluation_gate(
         load_json(replication),
-        expected_range_name="map_act1_value_replication_v2",
+        expected_range_name="map_act1_value_replication_v4",
         expected_map_checkpoint_sha256=map_hash,
         expected_card_checkpoint_sha256=card_hash,
         require_effect=True,
         expected_trained_acts=frozenset(TRAINED_ACTS),
+        expected_trained_floor_range=TRAINED_FLOOR_RANGE,
     )
     (args.output / "replication-gate.json").write_text(
         json.dumps(replication_gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -439,9 +454,10 @@ def main() -> int:
         expected_map_checkpoint_sha256=map_hash,
         expected_card_checkpoint_sha256=card_hash,
         bootstrap_samples=args.bootstrap_samples,
-        expected_formal_range_name="map_act1_value_formal_v2",
-        expected_replication_range_name="map_act1_value_replication_v2",
+        expected_formal_range_name="map_act1_value_formal_v4",
+        expected_replication_range_name="map_act1_value_replication_v4",
         expected_trained_acts=frozenset(TRAINED_ACTS),
+        expected_trained_floor_range=TRAINED_FLOOR_RANGE,
     )
     (args.output / "audit.json").write_text(
         json.dumps(audit, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -455,6 +471,8 @@ def _frozen_parameters(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "card_override_margin": CARD_MARGIN,
         "card_checkpoint_sha256": CARD_CHECKPOINT_SHA256,
+        "trained_acts": list(TRAINED_ACTS),
+        "trained_floor_range": list(TRAINED_FLOOR_RANGE),
         "collection": {
             "seed_start": COLLECTION_SEED_START,
             "seed_count": COLLECTION_SEED_COUNT,

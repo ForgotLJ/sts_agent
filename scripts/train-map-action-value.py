@@ -60,6 +60,10 @@ def main() -> int:
     )
     if not trained_acts or any(act not in {1, 2, 3} for act in trained_acts):
         raise ValueError("map counterfactual corpus does not declare valid trained acts")
+    trained_floor_range = [
+        min(example.floor for example in examples),
+        max(example.floor for example in examples),
+    ]
     model, encoder, metrics = train_map_action_value_model(
         examples,
         config=config,
@@ -73,6 +77,7 @@ def main() -> int:
         "character": "IRONCLAD",
         "ascension": 20,
         "trained_acts": trained_acts,
+        "trained_floor_range": trained_floor_range,
         "corpus": {
             "path": str(args.input.resolve()),
             "records_sha256": validation["records_sha256"],
@@ -103,6 +108,7 @@ def main() -> int:
         "feature_dimension": encoder.dimension,
         "config": config.to_dict(),
         "trained_acts": trained_acts,
+        "trained_floor_range": trained_floor_range,
         "training": metadata["training"],
         "corpus": {
             "records_sha256": validation["records_sha256"],

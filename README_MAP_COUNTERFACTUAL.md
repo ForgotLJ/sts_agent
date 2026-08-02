@@ -78,9 +78,9 @@ First use a development-only, disjoint record-only range to inspect advantages. 
 python scripts/evaluate-a20-map-value-policy.py \
   --checkpoint /scratch/sts_agent/experiments/map_counterfactual_act1_v2/a20-map-action-value-IRONCLAD.pt \
   --card-checkpoint /scratch/sts_agent/experiments/a20_online_value_ironclad_v3/a20-online-value-IRONCLAD.pt \
-  --output /scratch/sts_agent/experiments/map_counterfactual_act1_v2/profile-2328000-2328127.json \
-  --seed-start 2328000 --seed-count 128 \
-  --seed-range-name map_act1_value_profile_v2 \
+  --output /scratch/sts_agent/experiments/map_counterfactual_act1_v4/profile-2332000-2332127.json \
+  --seed-start 2332000 --seed-count 128 \
+  --seed-range-name map_act1_value_profile_v4 \
   --override-margin 0.0 --card-override-margin 0.016514360904693604 \
   --record-only --device cpu
 ```
@@ -96,21 +96,22 @@ python scripts/audit-map-action-value.py \
   --output /scratch/sts_agent/experiments/map_counterfactual_act1_v2/audit.json \
   --map-checkpoint-sha256 '<frozen-map-checkpoint-sha256>' \
   --card-checkpoint-sha256 8c7f053c64b9bd57ccba6ae64ecba8586a29d37dfaf1842f00d083b07b113a3c \
-  --formal-range-name map_act1_value_formal_v2 \
-  --replication-range-name map_act1_value_replication_v2 \
-  --trained-acts 1
+  --formal-range-name map_act1_value_formal_v4 \
+  --replication-range-name map_act1_value_replication_v4 \
+  --trained-acts 1 --trained-floor-range 0 0
 ```
 
 The audit verifies fixed ranges, disjoint episodes, both checkpoint hashes, safety counts, each 512-seed gate, and the pooled comparison. `replicated_improved` is required before the map module can become a new baseline.
 
 ## Autonomous Stage
 
-For the server, use one fresh stage directory rather than pausing after every intermediate artifact. The runner re-diagnoses the fixed pilot, collects the complete 300-decision Act 1 corpus, validates and diagnoses it, trains once, profiles a pre-specified p80 margin, then runs smoke, formal, replication, and audit. It records `stage.json` and automatically stops at the first failed gate while preserving all evidence.
+For the server, use one fresh stage directory rather than pausing after every intermediate artifact. The runner re-diagnoses the fixed pilot, validates and reuses the complete 300-decision Act 1 corpus, trains once with a floor-coverage guard, profiles a pre-specified p80 margin, then runs smoke, formal, replication, and audit. It records `stage.json` and automatically stops at the first failed gate while preserving all evidence.
 
 ```bash
 python scripts/run-a20-map-action-stage.py \
   --pilot /scratch/sts_agent/experiments/map_counterfactual_act1_pilot \
-  --output /scratch/sts_agent/experiments/map_action_stage_v2 \
+  --reuse-corpus /scratch/sts_agent/experiments/map_action_stage_v2/corpus \
+  --output /scratch/sts_agent/experiments/map_action_stage_v4 \
   --card-checkpoint /scratch/sts_agent/experiments/a20_online_value_ironclad_v3/a20-online-value-IRONCLAD.pt \
   --rollout-device cpu \
   --training-device cuda \
@@ -120,14 +121,3 @@ python scripts/run-a20-map-action-stage.py \
 The output directory must not already exist. A stopped stage is a valid result; inspect `stage.json` and its referenced artifacts rather than rerunning a failed seed range with modified settings.
 
 Use `--dry-run` with the same three required paths to inspect the fixed seed ranges, devices, training settings, and promotion gates without accessing the checkpoint, pilot corpus, or simulator.
-
-If collection completed but a later local stage failed, pass the validated corpus to a new output directory with `--reuse-corpus`. This resumes only after corpus validation and never recollects or mutates the original seed range:
-
-```bash
-python scripts/run-a20-map-action-stage.py \
-  --reuse-corpus /scratch/sts_agent/experiments/map_action_stage_v2/corpus \
-  --pilot /scratch/sts_agent/experiments/map_counterfactual_act1_pilot \
-  --output /scratch/sts_agent/experiments/map_action_stage_v3 \
-  --card-checkpoint /scratch/sts_agent/experiments/a20_online_value_ironclad_v3/a20-online-value-IRONCLAD.pt \
-  --rollout-device cpu --training-device cuda --evaluation-device cpu
-```

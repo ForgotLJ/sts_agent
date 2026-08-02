@@ -30,6 +30,7 @@ def audit_map_policy_evaluations(
     expected_formal_range_name: str = "map_value_formal",
     expected_replication_range_name: str = "map_value_replication",
     expected_trained_acts: frozenset[int] | None = None,
+    expected_trained_floor_range: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     formal = _read_json(formal_path)
     replication = _read_json(replication_path)
@@ -79,6 +80,16 @@ def audit_map_policy_evaluations(
             else:
                 if trained_acts != expected_trained_acts:
                     errors.append(f"{name}: map policy trained acts differ")
+        if expected_trained_floor_range is not None:
+            try:
+                trained_floor_range = tuple(
+                    int(value) for value in payload["map_policy_trained_floor_range"]
+                )
+            except (KeyError, TypeError, ValueError) as error:
+                errors.append(f"{name}: map policy trained floor range is invalid: {error}")
+            else:
+                if trained_floor_range != expected_trained_floor_range:
+                    errors.append(f"{name}: map policy trained floor range differs")
         for role in ("candidate", "reference"):
             summary = dict(payload.get(role, {}).get("summary") or {})
             for field in _SAFETY_FIELDS:

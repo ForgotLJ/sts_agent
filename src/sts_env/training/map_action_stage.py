@@ -40,6 +40,7 @@ def select_profile_margin(
     quantile: str = "p80",
     expected_range_name: str = "map_value_profile",
     expected_trained_acts: frozenset[int] | None = None,
+    expected_trained_floor_range: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     errors: list[str] = []
     if expected_range_name not in MAP_ACTION_EVALUATION_RANGE_NAMES:
@@ -52,6 +53,7 @@ def select_profile_margin(
     _require_checkpoint(profile, "map_checkpoint", expected_map_checkpoint_sha256, errors)
     _require_checkpoint(profile, "card_checkpoint", expected_card_checkpoint_sha256, errors)
     _require_trained_acts(profile, expected_trained_acts, errors)
+    _require_trained_floor_range(profile, expected_trained_floor_range, errors)
     _require_safety(profile, errors)
     telemetry = dict(profile.get("candidate_map_telemetry") or {})
     quantiles = dict(telemetry.get("best_advantage_quantiles") or {})
@@ -86,6 +88,7 @@ def map_evaluation_gate(
     expected_card_checkpoint_sha256: str,
     require_effect: bool,
     expected_trained_acts: frozenset[int] | None = None,
+    expected_trained_floor_range: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     errors: list[str] = []
     if expected_range_name not in MAP_ACTION_EVALUATION_RANGE_NAMES:
@@ -98,6 +101,7 @@ def map_evaluation_gate(
     _require_checkpoint(evaluation, "map_checkpoint", expected_map_checkpoint_sha256, errors)
     _require_checkpoint(evaluation, "card_checkpoint", expected_card_checkpoint_sha256, errors)
     _require_trained_acts(evaluation, expected_trained_acts, errors)
+    _require_trained_floor_range(evaluation, expected_trained_floor_range, errors)
     _require_safety(evaluation, errors)
     if evaluation.get("candidate", {}).get("method") != "a20-map-action-value":
         errors.append("candidate method differs")
@@ -179,6 +183,22 @@ def _require_trained_acts(
         return
     if actual != expected:
         errors.append("map policy trained acts differ")
+
+
+def _require_trained_floor_range(
+    payload: dict[str, Any],
+    expected: tuple[int, int] | None,
+    errors: list[str],
+) -> None:
+    if expected is None:
+        return
+    try:
+        actual = tuple(int(value) for value in payload["map_policy_trained_floor_range"])
+    except (KeyError, TypeError, ValueError) as error:
+        errors.append(f"map policy trained floor range is invalid: {error}")
+        return
+    if actual != expected:
+        errors.append("map policy trained floor range differs")
 
 
 def _require_safety(payload: dict[str, Any], errors: list[str]) -> None:

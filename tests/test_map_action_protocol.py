@@ -17,6 +17,7 @@ class MapActionProtocolTests(unittest.TestCase):
         self.assertIn("map_value_replication", registry)
         self.assertIn("map_act1_collection_v2", registry)
         self.assertIn("map_act1_value_replication_v2", registry)
+        self.assertIn("map_act1_value_formal_v4", registry)
 
     def test_registered_range_requires_exact_bounds_and_purpose(self) -> None:
         selected = require_map_action_seed_range(
