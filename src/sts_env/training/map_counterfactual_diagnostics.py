@@ -42,6 +42,7 @@ def diagnose_map_counterfactual_corpus(
     ]
     candidate_counts: Counter[int] = Counter()
     room_symbols: Counter[str] = Counter()
+    target_coordinates: Counter[str] = Counter()
     root_seeds: set[int] = set()
     group_floor_spreads: list[float] = []
     group_return_spreads: list[float] = []
@@ -62,6 +63,7 @@ def diagnose_map_counterfactual_corpus(
         for candidate in candidates:
             action = Action.from_dict(candidate["action"])
             room_symbols[action.option_type.upper() or "<empty>"] += 1
+            target_coordinates[f"{action.target_x},{action.target_y}"] += 1
             floors = [float(rollout["final_floor"]) for rollout in candidate["rollouts"]]
             returns = [float(rollout["environment_return"]) for rollout in candidate["rollouts"]]
             mean_floor = statistics.fmean(floors)
@@ -94,8 +96,8 @@ def diagnose_map_counterfactual_corpus(
         reasons.append("pilot records do not map one-to-one to root seeds")
     if contrasting_fraction < min_contrasting_fraction:
         reasons.append("too few map decisions have counterfactual final-floor contrast")
-    if len(room_symbols) < 2:
-        reasons.append("candidate map room symbols lack diversity")
+    if len(target_coordinates) < 2:
+        reasons.append("candidate map target coordinates lack diversity")
     return {
         "protocol": "map-counterfactual-corpus-diagnostic",
         "schema_version": 1,
@@ -115,6 +117,7 @@ def diagnose_map_counterfactual_corpus(
                 str(count): value for count, value in sorted(candidate_counts.items())
             },
             "candidate_room_symbols": dict(sorted(room_symbols.items())),
+            "candidate_target_coordinates": dict(sorted(target_coordinates.items())),
         },
         "counterfactual_contrast": {
             "final_floor_spread": _summary(group_floor_spreads),

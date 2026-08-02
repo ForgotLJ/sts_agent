@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 import hashlib
 import json
 import os
@@ -183,6 +184,21 @@ class MapActionValueTests(unittest.TestCase):
         self.assertFalse(root_seeds["train"] & root_seeds["validation"])
         self.assertFalse(root_seeds["train"] & root_seeds["test"])
         self.assertFalse(root_seeds["validation"] & root_seeds["test"])
+
+    def test_multiple_decisions_from_one_root_seed_stay_in_one_split(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_corpus(root)
+            examples, _ = load_map_action_value_examples(root)
+        source = [example for example in examples if example.root_seed == 0]
+        duplicated_decision = [replace(example, decision_index=1) for example in source]
+        splits = split_map_action_value_examples(examples + duplicated_decision)
+        matching_splits = [
+            name
+            for name, values in splits.items()
+            if any(example.root_seed == 0 for example in values)
+        ]
+        self.assertEqual(len(matching_splits), 1)
 
     def test_policy_only_overrides_map_when_margin_is_met(self) -> None:
         policy = A20MapActionValuePolicy(

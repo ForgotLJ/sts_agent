@@ -30,7 +30,7 @@ RIGHT = Action(
     ActionKind.CHOOSE_MAP_NODE,
     source_id="x1",
     choice_index=1,
-    option_type="R",
+    option_type="M",
     target_x=1,
     target_y=1,
 )
@@ -52,7 +52,7 @@ def map_observation() -> Observation:
         floor=3,
         map_nodes=(
             MapNodeView(x=0, y=1, symbol="M"),
-            MapNodeView(x=1, y=1, symbol="R"),
+            MapNodeView(x=1, y=1, symbol="M"),
         ),
     )
 
@@ -225,6 +225,8 @@ class MapCounterfactualTests(unittest.TestCase):
             result = diagnose_map_counterfactual_corpus(root, min_records=1)
         self.assertTrue(result["scale_gate"]["eligible"])
         self.assertEqual(result["counterfactual_contrast"]["groups_with_final_floor_contrast"], 1)
+        self.assertEqual(result["records"]["candidate_room_symbols"], {"M": 2})
+        self.assertEqual(len(result["records"]["candidate_target_coordinates"]), 2)
 
 
 if __name__ == "__main__":

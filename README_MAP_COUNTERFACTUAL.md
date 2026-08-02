@@ -32,6 +32,8 @@ python scripts/diagnose-map-counterfactual-corpus.py \
 
 The pilot writes only simulator-generated records and a manifest. It does not train a policy. Do not use formal evaluation seeds, and do not mix a failed/incomplete collection with a later corpus.
 
+The first map layer normally exposes only `M` room symbols. The diagnostic reports room-symbol counts but gates candidate diversity on distinct public target coordinates; route topology, not an impossible first-layer room-symbol mixture, is the relevant signal for this pilot.
+
 ## Scale Gate
 
 Only after the pilot manifest is `complete=true` and the validator accepts it, collect the fixed training corpus. The collector has a pre-registered finite range; a shortfall is a failed collection, not permission to reuse the range with altered settings.
@@ -84,3 +86,34 @@ python scripts/evaluate-a20-map-value-policy.py \
 ```
 
 Freeze a conservative margin from that profile before running any effect range. Then use new, non-overlapping seed ranges in order: 32-seed smoke, 512-seed formal evaluation, and an independent 512-seed replication. Compare against the p80 clone-value card policy, not the earlier heuristic-only policy. Promote only if both 512-seed runs have zero safety failures, final-floor bootstrap CI lower bounds above zero, and non-negative Act 1 mean differences.
+
+After the two 512-seed results are frozen, audit them without rerunning either evaluation:
+
+```bash
+python scripts/audit-map-action-value.py \
+  --formal /scratch/sts_agent/experiments/map_counterfactual_a20_ironclad_v1/formal.json \
+  --replication /scratch/sts_agent/experiments/map_counterfactual_a20_ironclad_v1/replication.json \
+  --output /scratch/sts_agent/experiments/map_counterfactual_a20_ironclad_v1/audit.json \
+  --map-checkpoint-sha256 '<frozen-map-checkpoint-sha256>' \
+  --card-checkpoint-sha256 8c7f053c64b9bd57ccba6ae64ecba8586a29d37dfaf1842f00d083b07b113a3c
+```
+
+The audit verifies fixed ranges, disjoint episodes, both checkpoint hashes, safety counts, each 512-seed gate, and the pooled comparison. `replicated_improved` is required before the map module can become a new baseline.
+
+## Autonomous Stage
+
+For the server, use one fresh stage directory rather than pausing after every intermediate artifact. The runner re-diagnoses the fixed pilot, collects the complete 900-decision corpus, validates and diagnoses it, trains once, profiles a pre-specified p80 margin, then runs smoke, formal, replication, and audit. It records `stage.json` and automatically stops at the first failed gate while preserving all evidence.
+
+```bash
+python scripts/run-a20-map-action-stage.py \
+  --pilot /scratch/sts_agent/experiments/map_counterfactual_act1_pilot \
+  --output /scratch/sts_agent/experiments/map_action_stage_v1 \
+  --card-checkpoint /scratch/sts_agent/experiments/a20_online_value_ironclad_v3/a20-online-value-IRONCLAD.pt \
+  --rollout-device cpu \
+  --training-device cuda \
+  --evaluation-device cpu
+```
+
+The output directory must not already exist. A stopped stage is a valid result; inspect `stage.json` and its referenced artifacts rather than rerunning a failed seed range with modified settings.
+
+Use `--dry-run` with the same three required paths to inspect the fixed seed ranges, devices, training settings, and promotion gates without accessing the checkpoint, pilot corpus, or simulator.
