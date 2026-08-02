@@ -27,19 +27,25 @@ def audit_map_policy_evaluations(
     expected_map_checkpoint_sha256: str | None = None,
     expected_card_checkpoint_sha256: str | None = None,
     bootstrap_samples: int = 10_000,
+    expected_formal_range_name: str = "map_value_formal",
+    expected_replication_range_name: str = "map_value_replication",
+    expected_trained_acts: frozenset[int] | None = None,
 ) -> dict[str, Any]:
     formal = _read_json(formal_path)
     replication = _read_json(replication_path)
     errors: list[str] = []
     required_protocol = "a20-map-action-value-paired-lightspeed-evaluation"
-    for name, payload in (("formal", formal), ("replication", replication)):
+    evaluations = (
+        ("formal", formal, expected_formal_range_name),
+        ("replication", replication, expected_replication_range_name),
+    )
+    for name, payload, expected_range in evaluations:
         if payload.get("protocol") != required_protocol:
             errors.append(f"{name}: protocol differs")
         if payload.get("record_only"):
             errors.append(f"{name}: record-only result cannot be promoted")
         if payload.get("seed_count") != 512:
             errors.append(f"{name}: seed count is not 512")
-        expected_range = "map_value_formal" if name == "formal" else "map_value_replication"
         try:
             require_map_action_seed_range(
                 expected_range,
@@ -65,6 +71,14 @@ def audit_map_policy_evaluations(
             field="card_checkpoint",
             expected=expected_card_checkpoint_sha256,
         )
+        if expected_trained_acts is not None:
+            try:
+                trained_acts = frozenset(int(value) for value in payload["map_policy_trained_acts"])
+            except (KeyError, TypeError, ValueError) as error:
+                errors.append(f"{name}: map policy trained acts are invalid: {error}")
+            else:
+                if trained_acts != expected_trained_acts:
+                    errors.append(f"{name}: map policy trained acts differ")
         for role in ("candidate", "reference"):
             summary = dict(payload.get(role, {}).get("summary") or {})
             for field in _SAFETY_FIELDS:

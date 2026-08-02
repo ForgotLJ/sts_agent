@@ -65,13 +65,37 @@ MAP_ACTION_RANGES = (
         512,
         "map policy independent replication",
     ),
+    MapActionSeedRange(
+        "map_act1_collection_v2",
+        2_322_000,
+        4_096,
+        "Act 1-only A20 map counterfactual corpus collection",
+    ),
+    MapActionSeedRange("map_act1_value_profile_v2", 2_328_000, 128, "Act 1 map margin profile"),
+    MapActionSeedRange("map_act1_value_smoke_v2", 2_329_000, 32, "Act 1 map policy smoke"),
+    MapActionSeedRange("map_act1_value_formal_v2", 2_330_000, 512, "Act 1 map policy formal evaluation"),
+    MapActionSeedRange(
+        "map_act1_value_replication_v2",
+        2_331_000,
+        512,
+        "Act 1 map policy independent replication",
+    ),
 )
 
 MAP_ACTION_COLLECTION_RANGE_NAMES = frozenset(
-    {"map_act1_pilot", "map_counterfactual_collection"}
+    {"map_act1_pilot", "map_counterfactual_collection", "map_act1_collection_v2"}
 )
 MAP_ACTION_EVALUATION_RANGE_NAMES = frozenset(
-    {"map_value_profile", "map_value_smoke", "map_value_formal", "map_value_replication"}
+    {
+        "map_value_profile",
+        "map_value_smoke",
+        "map_value_formal",
+        "map_value_replication",
+        "map_act1_value_profile_v2",
+        "map_act1_value_smoke_v2",
+        "map_act1_value_formal_v2",
+        "map_act1_value_replication_v2",
+    }
 )
 
 

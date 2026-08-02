@@ -75,8 +75,8 @@ def map_observation() -> Observation:
 
 
 class FakeMapEnvironment:
-    def __init__(self) -> None:
-        self._observation = map_observation()
+    def __init__(self, observation: Observation | None = None) -> None:
+        self._observation = observation or map_observation()
 
     @property
     def observation(self) -> Observation:
@@ -219,6 +219,20 @@ class MapActionValueTests(unittest.TestCase):
         self.assertEqual(record_only.select(FakeMapEnvironment()), LEFT)
         self.assertEqual(record_only.telemetry()["overrides"], 0)
 
+    def test_policy_never_scores_an_untrained_act(self) -> None:
+        policy = A20MapActionValuePolicy(
+            RightRouteValueModel(),
+            MapActionFeatureEncoder(),
+            fallback=FirstLegalPolicy(),
+            override_margin=0.0,
+            allowed_acts={1},
+        )
+        action = policy.select(FakeMapEnvironment(replace(map_observation(), act=2)))
+        self.assertEqual(action, LEFT)
+        self.assertEqual(policy.telemetry()["map_decisions"], 0)
+        self.assertEqual(policy.telemetry()["untrained_act_map_decisions"], 1)
+        self.assertEqual(policy.telemetry()["candidate_actions_scored"], 0)
+
     def test_small_training_and_checkpoint_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -283,6 +297,7 @@ class MapActionValueTests(unittest.TestCase):
             self.assertTrue(checkpoint.is_file())
             payload = json.loads(frozen_evaluation.read_text(encoding="utf-8"))
         self.assertEqual(payload["protocol"], "a20-map-action-value-offline-evaluation")
+        self.assertEqual(payload["trained_acts"], [1])
         self.assertGreater(payload["metrics"]["test"]["examples"], 0.0)
 
 

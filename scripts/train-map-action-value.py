@@ -53,6 +53,13 @@ def main() -> int:
         dropout=args.dropout,
     )
     examples, manifest = load_map_action_value_examples(args.input)
+    trained_acts = sorted(
+        int(act)
+        for act, count in dict(manifest.get("counts") or {}).items()
+        if int(count) > 0
+    )
+    if not trained_acts or any(act not in {1, 2, 3} for act in trained_acts):
+        raise ValueError("map counterfactual corpus does not declare valid trained acts")
     model, encoder, metrics = train_map_action_value_model(
         examples,
         config=config,
@@ -65,6 +72,7 @@ def main() -> int:
     metadata: dict[str, Any] = {
         "character": "IRONCLAD",
         "ascension": 20,
+        "trained_acts": trained_acts,
         "corpus": {
             "path": str(args.input.resolve()),
             "records_sha256": validation["records_sha256"],
@@ -94,6 +102,7 @@ def main() -> int:
         },
         "feature_dimension": encoder.dimension,
         "config": config.to_dict(),
+        "trained_acts": trained_acts,
         "training": metadata["training"],
         "corpus": {
             "records_sha256": validation["records_sha256"],

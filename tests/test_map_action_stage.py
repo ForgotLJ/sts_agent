@@ -85,6 +85,22 @@ class MapActionStageTests(unittest.TestCase):
                 expected_card_checkpoint_sha256=CARD_SHA,
             )
 
+    def test_profile_requires_the_checkpoint_declared_act_scope(self) -> None:
+        profile = evaluation("map_act1_value_profile_v2", 2_328_000, 128, record_only=True)
+        profile["candidate_map_telemetry"] = {
+            "map_decisions": 100,
+            "best_advantage_quantiles": {"p80": 0.024},
+        }
+        profile["map_policy_trained_acts"] = [1]
+        selected = select_profile_margin(
+            profile,
+            expected_map_checkpoint_sha256=MAP_SHA,
+            expected_card_checkpoint_sha256=CARD_SHA,
+            expected_range_name="map_act1_value_profile_v2",
+            expected_trained_acts=frozenset({1}),
+        )
+        self.assertEqual(selected["profile_seed_range_name"], "map_act1_value_profile_v2")
+
     def test_smoke_requires_safety_but_not_effect_confidence(self) -> None:
         smoke = evaluation("map_value_smoke", 2_319_000, 32, ci_low=-0.2)
         result = map_evaluation_gate(

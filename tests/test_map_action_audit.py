@@ -59,6 +59,7 @@ def evaluation(range_name: str, seed_start: int, candidate_gain: int) -> dict[st
         "seed_count": 512,
         "map_checkpoint": {"sha256": MAP_SHA},
         "card_checkpoint": {"sha256": CARD_SHA},
+        "map_policy_trained_acts": [1],
         "candidate": {
             "method": "a20-map-action-value",
             "summary": summary(candidate_episodes, 0.25),
@@ -125,6 +126,31 @@ class MapActionAuditTests(unittest.TestCase):
             result = audit_map_policy_evaluations(formal, replication)
         self.assertEqual(result["verdict"], "FAIL")
         self.assertIn("seed sets overlap", " ".join(result["errors"]))
+
+    def test_audit_accepts_the_act1_v2_ranges_and_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            formal = root / "formal.json"
+            replication = root / "replication.json"
+            formal.write_text(
+                json.dumps(evaluation("map_act1_value_formal_v2", 2_330_000, 1)),
+                encoding="utf-8",
+            )
+            replication.write_text(
+                json.dumps(evaluation("map_act1_value_replication_v2", 2_331_000, 1)),
+                encoding="utf-8",
+            )
+            result = audit_map_policy_evaluations(
+                formal,
+                replication,
+                expected_map_checkpoint_sha256=MAP_SHA,
+                expected_card_checkpoint_sha256=CARD_SHA,
+                expected_formal_range_name="map_act1_value_formal_v2",
+                expected_replication_range_name="map_act1_value_replication_v2",
+                expected_trained_acts=frozenset({1}),
+                bootstrap_samples=32,
+            )
+        self.assertEqual(result["verdict"], "replicated_improved")
 
 
 if __name__ == "__main__":

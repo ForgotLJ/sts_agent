@@ -26,12 +26,14 @@ from sts_env.training.map_counterfactual import validate_map_counterfactual_corp
 CARD_MARGIN = 0.016514360904693604
 CARD_CHECKPOINT_SHA256 = "8c7f053c64b9bd57ccba6ae64ecba8586a29d37dfaf1842f00d083b07b113a3c"
 BOOTSTRAP_SAMPLES = 10_000
-COLLECTION_SEED_START = 2_312_000
+STAGE_PROTOCOL = "a20-map-action-act1-stage-v2"
+TRAINED_ACTS = (1,)
+COLLECTION_SEED_START = 2_322_000
 COLLECTION_SEED_COUNT = 4_096
-PROFILE_SEED_START = 2_318_000
-SMOKE_SEED_START = 2_319_000
-FORMAL_SEED_START = 2_320_000
-REPLICATION_SEED_START = 2_321_000
+PROFILE_SEED_START = 2_328_000
+SMOKE_SEED_START = 2_329_000
+FORMAL_SEED_START = 2_330_000
+REPLICATION_SEED_START = 2_331_000
 TRAINING_SEED = 17
 
 _ACTIVE_STAGE: tuple[Path, dict[str, Any]] | None = None
@@ -39,7 +41,7 @@ _ACTIVE_STAGE: tuple[Path, dict[str, Any]] | None = None
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run the pre-registered A20 Ironclad map-action stage with automatic gates."
+        description="Run the pre-registered A20 Ironclad Act 1 map-action stage with automatic gates."
     )
     parser.add_argument("--pilot", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -78,8 +80,8 @@ def main() -> int:
         print(
             json.dumps(
                 {
-                    "protocol": "a20-map-action-stage-dry-run",
-                    "schema_version": 1,
+                    "protocol": f"{STAGE_PROTOCOL}-dry-run",
+                    "schema_version": 2,
                     "source": _source_identity(),
                     "frozen_parameters": _frozen_parameters(args),
                     "steps": _stage_plan(),
@@ -100,8 +102,8 @@ def main() -> int:
         raise ValueError("card checkpoint SHA-256 differs from the frozen clone-value baseline")
     args.output.mkdir(parents=True, exist_ok=False)
     state: dict[str, Any] = {
-        "protocol": "a20-map-action-stage",
-        "schema_version": 1,
+        "protocol": STAGE_PROTOCOL,
+        "schema_version": 2,
         "status": "running",
         "source": _source_identity(),
         "frozen_parameters": _frozen_parameters(args),
@@ -175,11 +177,9 @@ def main() -> int:
         "--seed-count",
         str(COLLECTION_SEED_COUNT),
         "--seed-range-name",
-        "map_counterfactual_collection",
+        "map_act1_collection_v2",
         "--acts",
         "1",
-        "2",
-        "3",
         "--per-act",
         "300",
         "--particles-per-action",
@@ -212,7 +212,7 @@ def main() -> int:
     corpus_diagnostic_step = step("corpus_diagnostic")
     corpus_diagnostic = diagnose_map_counterfactual_corpus(
         corpus,
-        min_records=900,
+        min_records=300,
         min_contrasting_fraction=0.20,
     )
     (args.output / "corpus-diagnostics.json").write_text(
@@ -256,6 +256,21 @@ def main() -> int:
         )
     if not checkpoint.is_file() or not frozen_evaluation.is_file():
         return persist("stopped_training_artifact_missing")
+    try:
+        offline_evaluation = load_json(frozen_evaluation)
+        trained_acts = tuple(int(value) for value in offline_evaluation["trained_acts"])
+        act_counts = {
+            str(act): int(count)
+            for act, count in dict(offline_evaluation["corpus"]["act_counts"]).items()
+        }
+    except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError) as error:
+        return persist("stopped_training_scope_validation", error=str(error))
+    if trained_acts != TRAINED_ACTS or act_counts != {"1": args.collection_per_act}:
+        return persist(
+            "stopped_training_scope_validation",
+            trained_acts=list(trained_acts),
+            act_counts=act_counts,
+        )
     map_hash = sha256_file(checkpoint)
 
     profile = args.output / "profile.json"
@@ -265,7 +280,7 @@ def main() -> int:
         profile,
         seed_start=PROFILE_SEED_START,
         seed_count=128,
-        range_name="map_value_profile",
+        range_name="map_act1_value_profile_v2",
         map_margin=0.0,
         device=args.evaluation_device,
         bootstrap_samples=args.bootstrap_samples,
@@ -282,6 +297,8 @@ def main() -> int:
             expected_map_checkpoint_sha256=map_hash,
             expected_card_checkpoint_sha256=card_hash,
             quantile="p80",
+            expected_range_name="map_act1_value_profile_v2",
+            expected_trained_acts=frozenset(TRAINED_ACTS),
         )
     except ValueError as error:
         return persist("stopped_profile_validation", error=str(error))
@@ -299,7 +316,7 @@ def main() -> int:
         smoke,
         seed_start=SMOKE_SEED_START,
         seed_count=32,
-        range_name="map_value_smoke",
+        range_name="map_act1_value_smoke_v2",
         map_margin=float(margin["override_margin"]),
         device=args.evaluation_device,
         bootstrap_samples=args.bootstrap_samples,
@@ -312,10 +329,11 @@ def main() -> int:
     smoke_gate_step = step("smoke_gate")
     smoke_gate = map_evaluation_gate(
         load_json(smoke),
-        expected_range_name="map_value_smoke",
+        expected_range_name="map_act1_value_smoke_v2",
         expected_map_checkpoint_sha256=map_hash,
         expected_card_checkpoint_sha256=card_hash,
         require_effect=False,
+        expected_trained_acts=frozenset(TRAINED_ACTS),
     )
     (args.output / "smoke-gate.json").write_text(
         json.dumps(smoke_gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -332,7 +350,7 @@ def main() -> int:
         formal,
         seed_start=FORMAL_SEED_START,
         seed_count=512,
-        range_name="map_value_formal",
+        range_name="map_act1_value_formal_v2",
         map_margin=float(margin["override_margin"]),
         device=args.evaluation_device,
         bootstrap_samples=args.bootstrap_samples,
@@ -345,10 +363,11 @@ def main() -> int:
     formal_gate_step = step("formal_gate")
     formal_gate = map_evaluation_gate(
         load_json(formal),
-        expected_range_name="map_value_formal",
+        expected_range_name="map_act1_value_formal_v2",
         expected_map_checkpoint_sha256=map_hash,
         expected_card_checkpoint_sha256=card_hash,
         require_effect=True,
+        expected_trained_acts=frozenset(TRAINED_ACTS),
     )
     (args.output / "formal-gate.json").write_text(
         json.dumps(formal_gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -365,7 +384,7 @@ def main() -> int:
         replication,
         seed_start=REPLICATION_SEED_START,
         seed_count=512,
-        range_name="map_value_replication",
+        range_name="map_act1_value_replication_v2",
         map_margin=float(margin["override_margin"]),
         device=args.evaluation_device,
         bootstrap_samples=args.bootstrap_samples,
@@ -378,10 +397,11 @@ def main() -> int:
     replication_gate_step = step("replication_gate")
     replication_gate = map_evaluation_gate(
         load_json(replication),
-        expected_range_name="map_value_replication",
+        expected_range_name="map_act1_value_replication_v2",
         expected_map_checkpoint_sha256=map_hash,
         expected_card_checkpoint_sha256=card_hash,
         require_effect=True,
+        expected_trained_acts=frozenset(TRAINED_ACTS),
     )
     (args.output / "replication-gate.json").write_text(
         json.dumps(replication_gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -398,6 +418,9 @@ def main() -> int:
         expected_map_checkpoint_sha256=map_hash,
         expected_card_checkpoint_sha256=card_hash,
         bootstrap_samples=args.bootstrap_samples,
+        expected_formal_range_name="map_act1_value_formal_v2",
+        expected_replication_range_name="map_act1_value_replication_v2",
+        expected_trained_acts=frozenset(TRAINED_ACTS),
     )
     (args.output / "audit.json").write_text(
         json.dumps(audit, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -414,7 +437,7 @@ def _frozen_parameters(args: argparse.Namespace) -> dict[str, Any]:
         "collection": {
             "seed_start": COLLECTION_SEED_START,
             "seed_count": COLLECTION_SEED_COUNT,
-            "acts": [1, 2, 3],
+            "acts": list(TRAINED_ACTS),
             "per_act": args.collection_per_act,
             "particles_per_action": args.collection_particles,
             "max_decisions_per_seed": 1,
@@ -443,7 +466,7 @@ def _frozen_parameters(args: argparse.Namespace) -> dict[str, Any]:
 def _stage_plan() -> list[dict[str, str]]:
     return [
         {"name": "pilot_diagnostic", "gate": "complete validated pilot with eligible diagnostic"},
-        {"name": "collect_corpus", "gate": "complete validated 300-decision corpus per act"},
+        {"name": "collect_corpus", "gate": "complete validated 300-decision Act 1 corpus"},
         {"name": "corpus_diagnostic", "gate": "eligible counterfactual contrast diagnostic"},
         {"name": "train_map_model", "gate": "checkpoint and frozen offline metrics exist"},
         {"name": "profile_map_policy", "gate": "record-only identity profile yields a finite p80 margin"},

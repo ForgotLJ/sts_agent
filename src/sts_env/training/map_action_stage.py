@@ -38,15 +38,20 @@ def select_profile_margin(
     expected_map_checkpoint_sha256: str,
     expected_card_checkpoint_sha256: str,
     quantile: str = "p80",
+    expected_range_name: str = "map_value_profile",
+    expected_trained_acts: frozenset[int] | None = None,
 ) -> dict[str, Any]:
     errors: list[str] = []
+    if expected_range_name not in MAP_ACTION_EVALUATION_RANGE_NAMES:
+        raise ValueError(f"unknown map profile range: {expected_range_name}")
     if profile.get("protocol") != _EVALUATION_PROTOCOL:
         errors.append("profile protocol differs")
     if not profile.get("record_only"):
         errors.append("profile is not record-only")
-    _require_range(profile, "map_value_profile", errors)
+    _require_range(profile, expected_range_name, errors)
     _require_checkpoint(profile, "map_checkpoint", expected_map_checkpoint_sha256, errors)
     _require_checkpoint(profile, "card_checkpoint", expected_card_checkpoint_sha256, errors)
+    _require_trained_acts(profile, expected_trained_acts, errors)
     _require_safety(profile, errors)
     telemetry = dict(profile.get("candidate_map_telemetry") or {})
     quantiles = dict(telemetry.get("best_advantage_quantiles") or {})
@@ -80,6 +85,7 @@ def map_evaluation_gate(
     expected_map_checkpoint_sha256: str,
     expected_card_checkpoint_sha256: str,
     require_effect: bool,
+    expected_trained_acts: frozenset[int] | None = None,
 ) -> dict[str, Any]:
     errors: list[str] = []
     if expected_range_name not in MAP_ACTION_EVALUATION_RANGE_NAMES:
@@ -91,6 +97,7 @@ def map_evaluation_gate(
     _require_range(evaluation, expected_range_name, errors)
     _require_checkpoint(evaluation, "map_checkpoint", expected_map_checkpoint_sha256, errors)
     _require_checkpoint(evaluation, "card_checkpoint", expected_card_checkpoint_sha256, errors)
+    _require_trained_acts(evaluation, expected_trained_acts, errors)
     _require_safety(evaluation, errors)
     if evaluation.get("candidate", {}).get("method") != "a20-map-action-value":
         errors.append("candidate method differs")
@@ -156,6 +163,22 @@ def _require_checkpoint(
     actual = str(dict(payload.get(field) or {}).get("sha256") or "")
     if actual != expected:
         errors.append(f"{field} SHA-256 differs")
+
+
+def _require_trained_acts(
+    payload: dict[str, Any],
+    expected: frozenset[int] | None,
+    errors: list[str],
+) -> None:
+    if expected is None:
+        return
+    try:
+        actual = frozenset(int(value) for value in payload["map_policy_trained_acts"])
+    except (KeyError, TypeError, ValueError) as error:
+        errors.append(f"map policy trained acts are invalid: {error}")
+        return
+    if actual != expected:
+        errors.append("map policy trained acts differ")
 
 
 def _require_safety(payload: dict[str, Any], errors: list[str]) -> None:

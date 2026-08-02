@@ -296,15 +296,25 @@ class A20MapActionValuePolicy:
         *,
         override_margin: float,
         record_only: bool = False,
+        allowed_acts: Iterable[int] | None = None,
     ) -> None:
         if override_margin < 0:
             raise ValueError("map-action override margin must be non-negative")
+        normalized_acts = (
+            frozenset(int(act) for act in allowed_acts) if allowed_acts is not None else None
+        )
+        if normalized_acts is not None and (
+            not normalized_acts or not normalized_acts.issubset({1, 2, 3})
+        ):
+            raise ValueError("map-action allowed acts must be a non-empty subset of 1, 2, and 3")
         self._model = model
         self._encoder = encoder
         self._fallback = fallback or HeuristicPolicy()
         self._override_margin = override_margin
         self._record_only = record_only
+        self._allowed_acts = normalized_acts
         self._map_decisions = 0
+        self._untrained_act_map_decisions = 0
         self._candidate_actions_scored = 0
         self._unscorable_baselines = 0
         self._model_failures = 0
@@ -325,6 +335,7 @@ class A20MapActionValuePolicy:
     def telemetry(self) -> dict[str, float | int]:
         return {
             "map_decisions": self._map_decisions,
+            "untrained_act_map_decisions": self._untrained_act_map_decisions,
             "candidate_actions_scored": self._candidate_actions_scored,
             "unscorable_baselines": self._unscorable_baselines,
             "model_failures": self._model_failures,
@@ -362,6 +373,9 @@ class A20MapActionValuePolicy:
             if action.kind is ActionKind.CHOOSE_MAP_NODE
         )
         if len(candidates) < 2:
+            return baseline
+        if self._allowed_acts is not None and observation.act not in self._allowed_acts:
+            self._untrained_act_map_decisions += 1
             return baseline
         self._map_decisions += 1
         if baseline not in candidates:

@@ -23,6 +23,9 @@ def main() -> int:
     parser.add_argument("--map-checkpoint-sha256", required=True)
     parser.add_argument("--card-checkpoint-sha256", required=True)
     parser.add_argument("--bootstrap-samples", type=int, default=10_000)
+    parser.add_argument("--formal-range-name", default="map_value_formal")
+    parser.add_argument("--replication-range-name", default="map_value_replication")
+    parser.add_argument("--trained-acts", type=int, nargs="+")
     args = parser.parse_args()
     if args.output.exists():
         raise FileExistsError(f"audit output already exists: {args.output}")
@@ -32,6 +35,11 @@ def main() -> int:
         expected_map_checkpoint_sha256=args.map_checkpoint_sha256,
         expected_card_checkpoint_sha256=args.card_checkpoint_sha256,
         bootstrap_samples=args.bootstrap_samples,
+        expected_formal_range_name=args.formal_range_name,
+        expected_replication_range_name=args.replication_range_name,
+        expected_trained_acts=(
+            frozenset(args.trained_acts) if args.trained_acts is not None else None
+        ),
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
