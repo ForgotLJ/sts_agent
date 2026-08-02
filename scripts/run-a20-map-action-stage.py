@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import json
 from pathlib import Path
 import subprocess
@@ -21,21 +22,88 @@ from sts_env.training.map_action_stage import (
 )
 from sts_env.training.map_counterfactual_diagnostics import diagnose_map_counterfactual_corpus
 from sts_env.training.map_counterfactual import validate_map_counterfactual_corpus
+from sts_env.training.map_action_value import MAP_ACTION_LABEL_MODE
 
 
 CARD_MARGIN = 0.016514360904693604
 CARD_CHECKPOINT_SHA256 = "8c7f053c64b9bd57ccba6ae64ecba8586a29d37dfaf1842f00d083b07b113a3c"
 BOOTSTRAP_SAMPLES = 10_000
-STAGE_PROTOCOL = "a20-map-action-act1-stage-v4"
-TRAINED_ACTS = (1,)
-TRAINED_FLOOR_RANGE = (0, 0)
-COLLECTION_SEED_START = 2_322_000
-COLLECTION_SEED_COUNT = 4_096
-PROFILE_SEED_START = 2_332_000
-SMOKE_SEED_START = 2_333_000
-FORMAL_SEED_START = 2_334_000
-REPLICATION_SEED_START = 2_335_000
-TRAINING_SEED = 17
+
+
+@dataclass(frozen=True)
+class StageConfig:
+    version: str
+    protocol: str
+    collection_seed_start: int
+    collection_seed_count: int
+    collection_range_name: str
+    collection_per_act: int
+    collection_particles: int
+    profile_seed_start: int
+    profile_range_name: str
+    smoke_seed_start: int
+    smoke_range_name: str
+    formal_seed_start: int
+    formal_range_name: str
+    replication_seed_start: int
+    replication_range_name: str
+    margin_quantile: str
+    label_mode: str | None
+    include_behavior_action: bool
+    trained_acts: tuple[int, ...] = (1,)
+    trained_floor_range: tuple[int, int] = (0, 0)
+    training_seed: int = 17
+
+
+V4_STAGE = StageConfig(
+    version="v4",
+    protocol="a20-map-action-act1-stage-v4",
+    collection_seed_start=2_322_000,
+    collection_seed_count=4_096,
+    collection_range_name="map_act1_collection_v2",
+    collection_per_act=300,
+    collection_particles=2,
+    profile_seed_start=2_332_000,
+    profile_range_name="map_act1_value_profile_v4",
+    smoke_seed_start=2_333_000,
+    smoke_range_name="map_act1_value_smoke_v4",
+    formal_seed_start=2_334_000,
+    formal_range_name="map_act1_value_formal_v4",
+    replication_seed_start=2_335_000,
+    replication_range_name="map_act1_value_replication_v4",
+    margin_quantile="p80",
+    label_mode=None,
+    include_behavior_action=False,
+)
+
+V5_STAGE = StageConfig(
+    version="v5",
+    protocol="a20-map-action-act1-stage-v5",
+    collection_seed_start=2_340_000,
+    collection_seed_count=8_192,
+    collection_range_name="map_act1_collection_v5",
+    collection_per_act=1_024,
+    collection_particles=8,
+    profile_seed_start=2_350_000,
+    profile_range_name="map_act1_value_profile_v5",
+    smoke_seed_start=2_351_000,
+    smoke_range_name="map_act1_value_smoke_v5",
+    formal_seed_start=2_352_000,
+    formal_range_name="map_act1_value_formal_v5",
+    replication_seed_start=2_353_000,
+    replication_range_name="map_act1_value_replication_v5",
+    margin_quantile="p95",
+    label_mode=MAP_ACTION_LABEL_MODE,
+    include_behavior_action=True,
+)
+
+
+def stage_config(version: str) -> StageConfig:
+    if version == "v4":
+        return V4_STAGE
+    if version == "v5":
+        return V5_STAGE
+    raise ValueError(f"unknown map-action stage version: {version}")
 
 _ACTIVE_STAGE: tuple[Path, dict[str, Any]] | None = None
 
@@ -44,6 +112,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run the pre-registered A20 Ironclad Act 1 map-action stage with automatic gates."
     )
+    parser.add_argument("--stage-version", choices=("v4", "v5"), default="v4")
     parser.add_argument("--pilot", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--card-checkpoint", type=Path, required=True)
@@ -56,8 +125,8 @@ def parse_args() -> argparse.Namespace:
         help="Reuse a complete Act 1 corpus from a prior stage without recollecting its frozen seed range.",
     )
     parser.add_argument("--bootstrap-samples", type=int, default=10000)
-    parser.add_argument("--collection-per-act", type=int, default=300)
-    parser.add_argument("--collection-particles", type=int, default=2)
+    parser.add_argument("--collection-per-act", type=int)
+    parser.add_argument("--collection-particles", type=int)
     parser.add_argument("--collection-rollout-max-steps", type=int, default=5000)
     parser.add_argument("--training-epochs", type=int, default=60)
     parser.add_argument("--training-groups-per-batch", type=int, default=32)
@@ -72,8 +141,18 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    if args.collection_per_act != 300 or args.collection_particles != 2:
-        raise ValueError("map-stage corpus quota and particles are frozen at 300 and 2")
+    config = stage_config(args.stage_version)
+    collection_per_act = (
+        config.collection_per_act if args.collection_per_act is None else args.collection_per_act
+    )
+    collection_particles = (
+        config.collection_particles if args.collection_particles is None else args.collection_particles
+    )
+    if collection_per_act != config.collection_per_act or collection_particles != config.collection_particles:
+        raise ValueError(
+            "map-stage corpus quota and particles are frozen at "
+            f"{config.collection_per_act} and {config.collection_particles} for {config.version}"
+        )
     if args.collection_rollout_max_steps != 5000:
         raise ValueError("map-stage rollout horizon is frozen at 5000")
     if args.training_epochs != 60 or args.training_groups_per_batch != 32:
@@ -82,17 +161,17 @@ def main() -> int:
         raise ValueError("map-stage learning rate is frozen")
     if args.bootstrap_samples != BOOTSTRAP_SAMPLES:
         raise ValueError("map-stage bootstrap samples are frozen at 10000")
-    if not args.reuse_corpus and not args.dry_run:
+    if config.version == "v4" and not args.reuse_corpus and not args.dry_run:
         raise ValueError("Act 1 floor-gated stage requires --reuse-corpus")
     if args.dry_run:
         print(
             json.dumps(
                 {
-                    "protocol": f"{STAGE_PROTOCOL}-dry-run",
+                    "protocol": f"{config.protocol}-dry-run",
                     "schema_version": 2,
                     "source": _source_identity(),
-                    "frozen_parameters": _frozen_parameters(args),
-                    "steps": _stage_plan(),
+                    "frozen_parameters": _frozen_parameters(args, config, collection_per_act, collection_particles),
+                    "steps": _stage_plan(config),
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -110,12 +189,12 @@ def main() -> int:
         raise ValueError("card checkpoint SHA-256 differs from the frozen clone-value baseline")
     args.output.mkdir(parents=True, exist_ok=False)
     state: dict[str, Any] = {
-        "protocol": STAGE_PROTOCOL,
+        "protocol": config.protocol,
         "schema_version": 2,
         "status": "running",
         "source": _source_identity(),
-        "frozen_parameters": _frozen_parameters(args),
-        "plan": _stage_plan(),
+        "frozen_parameters": _frozen_parameters(args, config, collection_per_act, collection_particles),
+        "plan": _stage_plan(config),
         "card_checkpoint": {"path": str(card_checkpoint), "sha256": card_hash},
         "steps": [],
     }
@@ -176,7 +255,14 @@ def main() -> int:
     if args.reuse_corpus:
         reuse_step = step("reuse_corpus", ["reuse", str(corpus)])
         corpus_validation = validate_map_counterfactual_corpus(corpus)
-        reuse_errors = _reusable_corpus_errors(corpus, corpus_validation, card_hash)
+        reuse_errors = _reusable_corpus_errors(
+            corpus,
+            corpus_validation,
+            card_hash,
+            config=config,
+            collection_per_act=collection_per_act,
+            collection_particles=collection_particles,
+        )
         (args.output / "corpus-validation.json").write_text(
             json.dumps(corpus_validation, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
@@ -197,17 +283,17 @@ def main() -> int:
             "--output",
             str(corpus),
             "--seed-start",
-            str(COLLECTION_SEED_START),
+            str(config.collection_seed_start),
             "--seed-count",
-            str(COLLECTION_SEED_COUNT),
+            str(config.collection_seed_count),
             "--seed-range-name",
-            "map_act1_collection_v2",
+            config.collection_range_name,
             "--acts",
             "1",
             "--per-act",
-            "300",
+            str(collection_per_act),
             "--particles-per-action",
-            "2",
+            str(collection_particles),
             "--max-decisions-per-seed",
             "1",
             "--rollout-max-steps",
@@ -236,7 +322,7 @@ def main() -> int:
     corpus_diagnostic_step = step("corpus_diagnostic")
     corpus_diagnostic = diagnose_map_counterfactual_corpus(
         corpus,
-        min_records=300,
+        min_records=collection_per_act,
         min_contrasting_fraction=0.20,
     )
     (args.output / "corpus-diagnostics.json").write_text(
@@ -265,10 +351,12 @@ def main() -> int:
         "--learning-rate",
         "0.0003",
         "--seed",
-        str(TRAINING_SEED),
+        str(config.training_seed),
         "--device",
         args.training_device,
     ]
+    if config.include_behavior_action:
+        training_command.append("--include-behavior-action")
     training_step = step("train_map_model", training_command)
     training_returncode = _run(training_command)
     finish_step(training_step, returncode=training_returncode)
@@ -290,18 +378,22 @@ def main() -> int:
             str(act): int(count)
             for act, count in dict(offline_evaluation["corpus"]["act_counts"]).items()
         }
+        checkpoint_config = dict(offline_evaluation.get("config") or {})
+        checkpoint_includes_behavior = bool(checkpoint_config.get("include_behavior_action"))
     except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError) as error:
         return persist("stopped_training_scope_validation", error=str(error))
     if (
-        trained_acts != TRAINED_ACTS
-        or trained_floor_range != TRAINED_FLOOR_RANGE
-        or act_counts != {"1": args.collection_per_act}
+        trained_acts != config.trained_acts
+        or trained_floor_range != config.trained_floor_range
+        or act_counts != {"1": collection_per_act}
+        or checkpoint_includes_behavior != config.include_behavior_action
     ):
         return persist(
             "stopped_training_scope_validation",
             trained_acts=list(trained_acts),
             trained_floor_range=list(trained_floor_range),
             act_counts=act_counts,
+            checkpoint_includes_behavior=checkpoint_includes_behavior,
         )
     map_hash = sha256_file(checkpoint)
 
@@ -310,9 +402,9 @@ def main() -> int:
         checkpoint,
         card_checkpoint,
         profile,
-        seed_start=PROFILE_SEED_START,
+        seed_start=config.profile_seed_start,
         seed_count=128,
-        range_name="map_act1_value_profile_v4",
+        range_name=config.profile_range_name,
         map_margin=0.0,
         device=args.evaluation_device,
         bootstrap_samples=args.bootstrap_samples,
@@ -328,10 +420,11 @@ def main() -> int:
             load_json(profile),
             expected_map_checkpoint_sha256=map_hash,
             expected_card_checkpoint_sha256=card_hash,
-            quantile="p80",
-            expected_range_name="map_act1_value_profile_v4",
-            expected_trained_acts=frozenset(TRAINED_ACTS),
-            expected_trained_floor_range=TRAINED_FLOOR_RANGE,
+            quantile=config.margin_quantile,
+            expected_range_name=config.profile_range_name,
+            expected_trained_acts=frozenset(config.trained_acts),
+            expected_trained_floor_range=config.trained_floor_range,
+            expected_label_mode=config.label_mode,
         )
     except ValueError as error:
         return persist("stopped_profile_validation", error=str(error))
@@ -347,9 +440,9 @@ def main() -> int:
         checkpoint,
         card_checkpoint,
         smoke,
-        seed_start=SMOKE_SEED_START,
+        seed_start=config.smoke_seed_start,
         seed_count=32,
-        range_name="map_act1_value_smoke_v4",
+        range_name=config.smoke_range_name,
         map_margin=float(margin["override_margin"]),
         device=args.evaluation_device,
         bootstrap_samples=args.bootstrap_samples,
@@ -362,12 +455,13 @@ def main() -> int:
     smoke_gate_step = step("smoke_gate")
     smoke_gate = map_evaluation_gate(
         load_json(smoke),
-        expected_range_name="map_act1_value_smoke_v4",
+        expected_range_name=config.smoke_range_name,
         expected_map_checkpoint_sha256=map_hash,
         expected_card_checkpoint_sha256=card_hash,
         require_effect=False,
-        expected_trained_acts=frozenset(TRAINED_ACTS),
-        expected_trained_floor_range=TRAINED_FLOOR_RANGE,
+        expected_trained_acts=frozenset(config.trained_acts),
+        expected_trained_floor_range=config.trained_floor_range,
+        expected_label_mode=config.label_mode,
     )
     (args.output / "smoke-gate.json").write_text(
         json.dumps(smoke_gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -382,9 +476,9 @@ def main() -> int:
         checkpoint,
         card_checkpoint,
         formal,
-        seed_start=FORMAL_SEED_START,
+        seed_start=config.formal_seed_start,
         seed_count=512,
-        range_name="map_act1_value_formal_v4",
+        range_name=config.formal_range_name,
         map_margin=float(margin["override_margin"]),
         device=args.evaluation_device,
         bootstrap_samples=args.bootstrap_samples,
@@ -397,12 +491,13 @@ def main() -> int:
     formal_gate_step = step("formal_gate")
     formal_gate = map_evaluation_gate(
         load_json(formal),
-        expected_range_name="map_act1_value_formal_v4",
+        expected_range_name=config.formal_range_name,
         expected_map_checkpoint_sha256=map_hash,
         expected_card_checkpoint_sha256=card_hash,
         require_effect=True,
-        expected_trained_acts=frozenset(TRAINED_ACTS),
-        expected_trained_floor_range=TRAINED_FLOOR_RANGE,
+        expected_trained_acts=frozenset(config.trained_acts),
+        expected_trained_floor_range=config.trained_floor_range,
+        expected_label_mode=config.label_mode,
     )
     (args.output / "formal-gate.json").write_text(
         json.dumps(formal_gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -417,9 +512,9 @@ def main() -> int:
         checkpoint,
         card_checkpoint,
         replication,
-        seed_start=REPLICATION_SEED_START,
+        seed_start=config.replication_seed_start,
         seed_count=512,
-        range_name="map_act1_value_replication_v4",
+        range_name=config.replication_range_name,
         map_margin=float(margin["override_margin"]),
         device=args.evaluation_device,
         bootstrap_samples=args.bootstrap_samples,
@@ -432,12 +527,13 @@ def main() -> int:
     replication_gate_step = step("replication_gate")
     replication_gate = map_evaluation_gate(
         load_json(replication),
-        expected_range_name="map_act1_value_replication_v4",
+        expected_range_name=config.replication_range_name,
         expected_map_checkpoint_sha256=map_hash,
         expected_card_checkpoint_sha256=card_hash,
         require_effect=True,
-        expected_trained_acts=frozenset(TRAINED_ACTS),
-        expected_trained_floor_range=TRAINED_FLOOR_RANGE,
+        expected_trained_acts=frozenset(config.trained_acts),
+        expected_trained_floor_range=config.trained_floor_range,
+        expected_label_mode=config.label_mode,
     )
     (args.output / "replication-gate.json").write_text(
         json.dumps(replication_gate, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -454,10 +550,11 @@ def main() -> int:
         expected_map_checkpoint_sha256=map_hash,
         expected_card_checkpoint_sha256=card_hash,
         bootstrap_samples=args.bootstrap_samples,
-        expected_formal_range_name="map_act1_value_formal_v4",
-        expected_replication_range_name="map_act1_value_replication_v4",
-        expected_trained_acts=frozenset(TRAINED_ACTS),
-        expected_trained_floor_range=TRAINED_FLOOR_RANGE,
+        expected_formal_range_name=config.formal_range_name,
+        expected_replication_range_name=config.replication_range_name,
+        expected_trained_acts=frozenset(config.trained_acts),
+        expected_trained_floor_range=config.trained_floor_range,
+        expected_label_mode=config.label_mode,
     )
     (args.output / "audit.json").write_text(
         json.dumps(audit, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -467,18 +564,27 @@ def main() -> int:
     return persist("complete" if audit["verdict"] == "replicated_improved" else "stopped_audit", audit=audit)
 
 
-def _frozen_parameters(args: argparse.Namespace) -> dict[str, Any]:
+def _frozen_parameters(
+    args: argparse.Namespace,
+    config: StageConfig,
+    collection_per_act: int,
+    collection_particles: int,
+) -> dict[str, Any]:
     return {
         "card_override_margin": CARD_MARGIN,
         "card_checkpoint_sha256": CARD_CHECKPOINT_SHA256,
-        "trained_acts": list(TRAINED_ACTS),
-        "trained_floor_range": list(TRAINED_FLOOR_RANGE),
+        "stage_version": config.version,
+        "label_mode": config.label_mode,
+        "include_behavior_action": config.include_behavior_action,
+        "trained_acts": list(config.trained_acts),
+        "trained_floor_range": list(config.trained_floor_range),
         "collection": {
-            "seed_start": COLLECTION_SEED_START,
-            "seed_count": COLLECTION_SEED_COUNT,
-            "acts": list(TRAINED_ACTS),
-            "per_act": args.collection_per_act,
-            "particles_per_action": args.collection_particles,
+            "seed_start": config.collection_seed_start,
+            "seed_count": config.collection_seed_count,
+            "seed_range_name": config.collection_range_name,
+            "acts": list(config.trained_acts),
+            "per_act": collection_per_act,
+            "particles_per_action": collection_particles,
             "max_decisions_per_seed": 1,
             "rollout_max_steps": args.collection_rollout_max_steps,
             "device": args.rollout_device,
@@ -488,28 +594,50 @@ def _frozen_parameters(args: argparse.Namespace) -> dict[str, Any]:
             "epochs": args.training_epochs,
             "groups_per_batch": args.training_groups_per_batch,
             "learning_rate": args.training_learning_rate,
-            "seed": TRAINING_SEED,
+            "seed": config.training_seed,
             "device": args.training_device,
         },
         "evaluation": {
             "device": args.evaluation_device,
             "bootstrap_samples": args.bootstrap_samples,
-            "profile": {"seed_start": PROFILE_SEED_START, "seed_count": 128},
-            "smoke": {"seed_start": SMOKE_SEED_START, "seed_count": 32},
-            "formal": {"seed_start": FORMAL_SEED_START, "seed_count": 512},
-            "replication": {"seed_start": REPLICATION_SEED_START, "seed_count": 512},
-            "margin_quantile": "p80",
+            "profile": {
+                "seed_start": config.profile_seed_start,
+                "seed_count": 128,
+                "seed_range_name": config.profile_range_name,
+            },
+            "smoke": {
+                "seed_start": config.smoke_seed_start,
+                "seed_count": 32,
+                "seed_range_name": config.smoke_range_name,
+            },
+            "formal": {
+                "seed_start": config.formal_seed_start,
+                "seed_count": 512,
+                "seed_range_name": config.formal_range_name,
+            },
+            "replication": {
+                "seed_start": config.replication_seed_start,
+                "seed_count": 512,
+                "seed_range_name": config.replication_range_name,
+            },
+            "margin_quantile": config.margin_quantile,
         },
     }
 
 
-def _stage_plan() -> list[dict[str, str]]:
+def _stage_plan(config: StageConfig) -> list[dict[str, str]]:
     return [
         {"name": "pilot_diagnostic", "gate": "complete validated pilot with eligible diagnostic"},
-        {"name": "collect_corpus", "gate": "complete validated 300-decision Act 1 corpus"},
+        {
+            "name": "collect_corpus",
+            "gate": f"complete validated {config.collection_per_act}-decision Act 1 corpus",
+        },
         {"name": "corpus_diagnostic", "gate": "eligible counterfactual contrast diagnostic"},
         {"name": "train_map_model", "gate": "checkpoint and frozen offline metrics exist"},
-        {"name": "profile_map_policy", "gate": "record-only identity profile yields a finite p80 margin"},
+        {
+            "name": "profile_map_policy",
+            "gate": f"record-only identity profile yields a finite {config.margin_quantile} margin",
+        },
         {"name": "smoke_map_policy", "gate": "all safety counters are zero"},
         {"name": "formal_map_policy", "gate": "positive final-floor CI and nonnegative Act 1 difference"},
         {"name": "replication_map_policy", "gate": "independent positive final-floor CI and nonnegative Act 1 difference"},
@@ -547,6 +675,10 @@ def _reusable_corpus_errors(
     corpus: Path,
     validation: dict[str, Any],
     card_hash: str,
+    *,
+    config: StageConfig,
+    collection_per_act: int,
+    collection_particles: int,
 ) -> list[str]:
     errors = list(validation.get("errors") or [])
     if not validation.get("valid") or not validation.get("complete"):
@@ -554,18 +686,18 @@ def _reusable_corpus_errors(
     try:
         manifest = load_json(corpus / "manifest.json")
         expected_seed_range = [
-            COLLECTION_SEED_START,
-            COLLECTION_SEED_START + COLLECTION_SEED_COUNT - 1,
+            config.collection_seed_start,
+            config.collection_seed_start + config.collection_seed_count - 1,
         ]
-        if manifest.get("seed_range_name") != "map_act1_collection_v2":
+        if manifest.get("seed_range_name") != config.collection_range_name:
             errors.append("reusable corpus seed range name differs")
         if manifest.get("seed_range") != expected_seed_range:
             errors.append("reusable corpus seed range differs")
-        if dict(manifest.get("counts") or {}) != {"1": 300}:
+        if dict(manifest.get("counts") or {}) != {"1": collection_per_act}:
             errors.append("reusable corpus Act 1 quota differs")
         if str(dict(manifest.get("checkpoint") or {}).get("sha256")) != card_hash:
             errors.append("reusable corpus checkpoint differs")
-        if int(manifest.get("particles_per_action", 0)) != 2:
+        if int(manifest.get("particles_per_action", 0)) != collection_particles:
             errors.append("reusable corpus particle count differs")
         if int(manifest.get("max_decisions_per_seed", 0)) != 1:
             errors.append("reusable corpus decision quota differs")

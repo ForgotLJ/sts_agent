@@ -89,10 +89,30 @@ MAP_ACTION_RANGES = (
         512,
         "Act 1 floor-gated map policy independent replication",
     ),
+    MapActionSeedRange(
+        "map_act1_collection_v5",
+        2_340_000,
+        8_192,
+        "Act 1 behavior-relative map counterfactual corpus collection",
+    ),
+    MapActionSeedRange("map_act1_value_profile_v5", 2_350_000, 128, "Act 1 advantage-label map margin profile"),
+    MapActionSeedRange("map_act1_value_smoke_v5", 2_351_000, 32, "Act 1 advantage-label map policy smoke"),
+    MapActionSeedRange("map_act1_value_formal_v5", 2_352_000, 512, "Act 1 advantage-label map policy formal evaluation"),
+    MapActionSeedRange(
+        "map_act1_value_replication_v5",
+        2_353_000,
+        512,
+        "Act 1 advantage-label map policy independent replication",
+    ),
 )
 
 MAP_ACTION_COLLECTION_RANGE_NAMES = frozenset(
-    {"map_act1_pilot", "map_counterfactual_collection", "map_act1_collection_v2"}
+    {
+        "map_act1_pilot",
+        "map_counterfactual_collection",
+        "map_act1_collection_v2",
+        "map_act1_collection_v5",
+    }
 )
 MAP_ACTION_EVALUATION_RANGE_NAMES = frozenset(
     {
@@ -108,6 +128,10 @@ MAP_ACTION_EVALUATION_RANGE_NAMES = frozenset(
         "map_act1_value_smoke_v4",
         "map_act1_value_formal_v4",
         "map_act1_value_replication_v4",
+        "map_act1_value_profile_v5",
+        "map_act1_value_smoke_v5",
+        "map_act1_value_formal_v5",
+        "map_act1_value_replication_v5",
     }
 )
 

@@ -27,6 +27,7 @@ def main() -> int:
     parser.add_argument("--replication-range-name", default="map_value_replication")
     parser.add_argument("--trained-acts", type=int, nargs="+")
     parser.add_argument("--trained-floor-range", type=int, nargs=2)
+    parser.add_argument("--label-mode")
     args = parser.parse_args()
     if args.output.exists():
         raise FileExistsError(f"audit output already exists: {args.output}")
@@ -44,6 +45,7 @@ def main() -> int:
         expected_trained_floor_range=(
             tuple(args.trained_floor_range) if args.trained_floor_range is not None else None
         ),
+        expected_label_mode=args.label_mode,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(

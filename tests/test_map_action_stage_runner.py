@@ -95,6 +95,48 @@ class MapActionStageRunnerTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("bootstrap samples are frozen", result.stderr)
 
+    def test_v5_dry_run_declares_fresh_advantage_protocol(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            environment = os.environ.copy()
+            environment["PYTHONPATH"] = os.pathsep.join(
+                (str(PROJECT_ROOT / ".local_packages"), str(PROJECT_ROOT / "src"))
+            )
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(RUNNER),
+                    "--stage-version",
+                    "v5",
+                    "--pilot",
+                    str(root / "pilot"),
+                    "--output",
+                    str(root / "stage"),
+                    "--card-checkpoint",
+                    str(root / "card.pt"),
+                    "--dry-run",
+                ],
+                check=False,
+                capture_output=True,
+                env=environment,
+                text=True,
+                timeout=30,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["protocol"], "a20-map-action-act1-stage-v5-dry-run")
+        self.assertEqual(payload["frozen_parameters"]["collection"]["per_act"], 1024)
+        self.assertEqual(payload["frozen_parameters"]["collection"]["particles_per_action"], 8)
+        self.assertEqual(payload["frozen_parameters"]["evaluation"]["margin_quantile"], "p95")
+        self.assertEqual(
+            payload["frozen_parameters"]["evaluation"]["formal"]["seed_start"],
+            2_352_000,
+        )
+        self.assertEqual(
+            payload["frozen_parameters"]["label_mode"],
+            "behavior_relative_final_floor_advantage",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -64,6 +64,7 @@ class FullRunEvaluationSummary:
 
 
 PolicyFactory = Callable[[int, int], Any]
+SeedAwarePolicyFactory = Callable[[int, int, int], Any]
 
 
 def evaluate_full_runs(
@@ -75,6 +76,7 @@ def evaluate_full_runs(
     max_steps: int = 5000,
     cycle_limit: int = 16,
     bootstrap_samples: int = 10000,
+    seed_aware_policy_factory: SeedAwarePolicyFactory | None = None,
 ) -> FullRunEvaluationSummary:
     if not seeds or max_steps <= 0 or cycle_limit <= 0 or bootstrap_samples <= 0:
         raise ValueError("full-run evaluation configuration is invalid")
@@ -82,7 +84,11 @@ def evaluate_full_runs(
     for episode_index, seed in enumerate(seeds):
         episode_policy_seed = _split_seed(policy_seed, seed, episode_index)
         environment = environment_factory()
-        policy = policy_factory(episode_policy_seed, episode_index)
+        policy = (
+            seed_aware_policy_factory(episode_policy_seed, episode_index, seed)
+            if seed_aware_policy_factory is not None
+            else policy_factory(episode_policy_seed, episode_index)
+        )
         started = time.perf_counter()
         observation: Observation | None = None
         environment_return = 0.0

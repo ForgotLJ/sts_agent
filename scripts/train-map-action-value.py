@@ -12,7 +12,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from sts_env.training.map_action_value import (
+    MAP_ACTION_LABEL_MODE,
     MapActionValueConfig,
+    MapActionFeatureEncoder,
     load_map_action_value_examples,
     save_map_action_value_checkpoint,
     sha256_file,
@@ -35,6 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--hidden-dimension", type=int, default=128)
     parser.add_argument("--dropout", type=float, default=0.10)
+    parser.add_argument("--include-behavior-action", action="store_true")
     return parser.parse_args()
 
 
@@ -51,8 +54,12 @@ def main() -> int:
     config = MapActionValueConfig(
         hidden_dimension=args.hidden_dimension,
         dropout=args.dropout,
+        include_behavior_action=args.include_behavior_action,
     )
-    examples, manifest = load_map_action_value_examples(args.input)
+    examples, manifest = load_map_action_value_examples(
+        args.input,
+        encoder=MapActionFeatureEncoder(config),
+    )
     trained_acts = sorted(
         int(act)
         for act, count in dict(manifest.get("counts") or {}).items()
@@ -76,6 +83,7 @@ def main() -> int:
     metadata: dict[str, Any] = {
         "character": "IRONCLAD",
         "ascension": 20,
+        "label_mode": MAP_ACTION_LABEL_MODE,
         "trained_acts": trained_acts,
         "trained_floor_range": trained_floor_range,
         "corpus": {
@@ -89,6 +97,7 @@ def main() -> int:
             "learning_rate": args.learning_rate,
             "seed": args.seed,
             "device": args.device,
+            "include_behavior_action": args.include_behavior_action,
         },
     }
     save_map_action_value_checkpoint(
@@ -107,6 +116,7 @@ def main() -> int:
         },
         "feature_dimension": encoder.dimension,
         "config": config.to_dict(),
+        "label_mode": MAP_ACTION_LABEL_MODE,
         "trained_acts": trained_acts,
         "trained_floor_range": trained_floor_range,
         "training": metadata["training"],

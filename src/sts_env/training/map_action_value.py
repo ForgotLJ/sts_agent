@@ -18,6 +18,7 @@ from sts_env.types import Action, ActionKind, Observation, Phase
 
 
 _ROOM_SYMBOLS = ("?", "M", "E", "R", "$", "T", "B")
+MAP_ACTION_LABEL_MODE = "behavior_relative_final_floor_advantage"
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +30,8 @@ class MapActionValueConfig:
     hidden_dimension: int = 128
     dropout: float = 0.10
     final_floor_scale: float = 60.0
+    advantage_scale: float = 12.0
+    include_behavior_action: bool = False
 
     def __post_init__(self) -> None:
         if min(
@@ -43,8 +46,10 @@ class MapActionValueConfig:
             raise ValueError("map-action value dropout must be in [0, 1)")
         if self.final_floor_scale <= 0:
             raise ValueError("map-action final-floor scale must be positive")
+        if self.advantage_scale <= 0:
+            raise ValueError("map-action advantage scale must be positive")
 
-    def to_dict(self) -> dict[str, int | float]:
+    def to_dict(self) -> dict[str, int | float | bool]:
         return dict(asdict(self))
 
 
@@ -60,6 +65,7 @@ class MapActionValueExample:
     mean_final_floor: float
     mean_environment_return: float
     final_floor_variance: float
+    mean_advantage: float = 0.0
 
     def __post_init__(self) -> None:
         if self.root_seed < 0 or self.decision_index < 0:
@@ -74,6 +80,7 @@ class MapActionValueExample:
                 self.mean_final_floor,
                 self.mean_environment_return,
                 self.final_floor_variance,
+                self.mean_advantage,
             )
         ):
             raise ValueError("map-action example labels must be finite")
@@ -90,8 +97,18 @@ class MapActionFeatureEncoder:
         self.config = config or MapActionValueConfig()
         self.dimension = len(self._empty_features())
 
-    def encode(self, observation: Observation, action: Action) -> tuple[float, ...]:
-        features = tuple(self._features(observation, action))
+    def encode(
+        self,
+        observation: Observation,
+        action: Action,
+        behavior_action: Action | None = None,
+    ) -> tuple[float, ...]:
+        if self.config.include_behavior_action and behavior_action is None:
+            raise ValueError("map-action encoder requires a behavior action")
+        features = self._features(observation, action)
+        if self.config.include_behavior_action:
+            features += self._action_identity_features(observation, behavior_action)
+        features = tuple(features)
         if len(features) != self.dimension:
             raise AssertionError("map-action feature dimension changed unexpectedly")
         if not all(math.isfinite(value) for value in features):
@@ -108,6 +125,7 @@ class MapActionFeatureEncoder:
             + [0.0] * self.config.relic_buckets
             + [0.0] * self.config.potion_buckets
             + [0.0] * self.config.history_buckets
+            + ([0.0] * 12 if self.config.include_behavior_action else [])
         )
 
     def _features(self, observation: Observation, action: Action) -> list[float]:
@@ -180,6 +198,23 @@ class MapActionFeatureEncoder:
             self.config.history_buckets,
         )
         return core + run + topology + topology_numeric + deck + relics + potions + history_features
+
+    @classmethod
+    def _action_identity_features(
+        cls,
+        observation: Observation,
+        action: Action,
+    ) -> list[float]:
+        nodes = {(node.x, node.y): node for node in observation.map_nodes}
+        target = nodes.get((action.target_x, action.target_y))
+        return [
+            action.target_x / 7.0,
+            action.target_y / 16.0,
+            (action.target_y - observation.map_y) / 16.0,
+            action.choice_index / 7.0 if action.choice_index is not None else 0.0,
+            *cls._room_one_hot(action.option_type),
+            float(target.burning_elite) if target is not None else 0.0,
+        ]
 
     @staticmethod
     def _reachable_nodes(target: Any, nodes: dict[tuple[int, int], Any]) -> list[Any]:
@@ -298,6 +333,7 @@ class A20MapActionValuePolicy:
         record_only: bool = False,
         allowed_acts: Iterable[int] | None = None,
         allowed_floor_range: tuple[int, int] | None = None,
+        episode_seed: int | None = None,
     ) -> None:
         if override_margin < 0:
             raise ValueError("map-action override margin must be non-negative")
@@ -325,6 +361,8 @@ class A20MapActionValuePolicy:
         self._record_only = record_only
         self._allowed_acts = normalized_acts
         self._allowed_floor_range = normalized_floor_range
+        self._episode_seed = episode_seed
+        self._decision_index = 0
         self._map_decisions = 0
         self._untrained_act_map_decisions = 0
         self._untrained_floor_map_decisions = 0
@@ -336,6 +374,7 @@ class A20MapActionValuePolicy:
         self._override_advantage_total = 0.0
         self._value_best_matches_heuristic = 0
         self._best_advantages: list[float] = []
+        self._decision_events: list[dict[str, Any]] = []
 
     @property
     def total_simulator_calls(self) -> int:
@@ -344,6 +383,10 @@ class A20MapActionValuePolicy:
     @property
     def best_advantages(self) -> tuple[float, ...]:
         return tuple(self._best_advantages)
+
+    @property
+    def decision_events(self) -> tuple[dict[str, Any], ...]:
+        return tuple(copy.deepcopy(self._decision_events))
 
     def telemetry(self) -> dict[str, float | int]:
         return {
@@ -403,7 +446,7 @@ class A20MapActionValuePolicy:
         try:
             device = next(self._model.parameters()).device
             features = torch.tensor(
-                [self._encoder.encode(observation, action) for action in candidates],
+                [self._encoder.encode(observation, action, baseline) for action in candidates],
                 dtype=torch.float32,
                 device=device,
             )
@@ -420,15 +463,35 @@ class A20MapActionValuePolicy:
         baseline_index = candidates.index(baseline)
         best_index = max(range(len(candidates)), key=lambda index: values[index])
         advantage = values[best_index] - values[baseline_index]
-        self._best_advantages.append(advantage)
         best = candidates[best_index]
-        if best is baseline:
+        would_override = best != baseline and advantage >= self._override_margin
+        event = {
+            "episode_seed": self._episode_seed,
+            "decision_index": self._decision_index,
+            "act": observation.act,
+            "floor": observation.floor,
+            "candidate_count": len(candidates),
+            "baseline_action": baseline.to_dict(),
+            "selected_action": baseline.to_dict(),
+            "predicted_baseline_value": values[baseline_index],
+            "predicted_best_value": values[best_index],
+            "predicted_best_advantage": advantage,
+            "override_margin": self._override_margin,
+            "would_override": would_override,
+            "applied_override": False,
+        }
+        self._decision_events.append(event)
+        self._decision_index += 1
+        self._best_advantages.append(advantage)
+        if best == baseline:
             self._value_best_matches_heuristic += 1
-        if self._record_only or best is baseline or advantage < self._override_margin:
+        if self._record_only or best == baseline or advantage < self._override_margin:
             self._heuristic_actions_retained += 1
             return baseline
         self._overrides += 1
         self._override_advantage_total += advantage
+        event["selected_action"] = best.to_dict()
+        event["applied_override"] = True
         return best
 
 
@@ -454,6 +517,9 @@ def load_map_action_value_examples(
         record = json.loads(line)
         observation = Observation.from_dict(record["observation"])
         behavior_action = Action.from_dict(record["behavior_action"])
+        candidate_payloads = []
+        behavior_mean_floor: float | None = None
+        behavior_matches = 0
         for candidate_index, candidate in enumerate(record["candidates"]):
             action = Action.from_dict(candidate["action"])
             floors = [float(rollout["final_floor"]) for rollout in candidate["rollouts"]]
@@ -461,6 +527,15 @@ def load_map_action_value_examples(
             mean_floor = sum(floors) / len(floors)
             mean_return = sum(returns) / len(returns)
             variance = sum((value - mean_floor) ** 2 for value in floors) / len(floors)
+            candidate_payloads.append((candidate_index, action, mean_floor, mean_return, variance))
+            if action == behavior_action:
+                behavior_mean_floor = mean_floor
+                behavior_matches += 1
+        if behavior_mean_floor is None:
+            raise ValueError("map-action group has no behavior action")
+        if behavior_matches != 1:
+            raise ValueError("map-action group must contain exactly one behavior action")
+        for candidate_index, action, mean_floor, mean_return, variance in candidate_payloads:
             examples.append(
                 MapActionValueExample(
                     root_seed=int(record["seed"]),
@@ -469,10 +544,11 @@ def load_map_action_value_examples(
                     floor=int(record["floor"]),
                     candidate_index=candidate_index,
                     is_behavior_action=action == behavior_action,
-                    features=active_encoder.encode(observation, action),
+                    features=active_encoder.encode(observation, action, behavior_action),
                     mean_final_floor=mean_floor,
                     mean_environment_return=mean_return,
                     final_floor_variance=variance,
+                    mean_advantage=mean_floor - behavior_mean_floor,
                 )
             )
     if not examples:
@@ -513,18 +589,18 @@ def evaluate_map_action_value_model(
     pairwise_total = 0
     top1_oracle_matches = 0
     behavior_oracle_matches = 0
-    predicted_floors: list[float] = []
-    behavior_floors: list[float] = []
-    oracle_floors: list[float] = []
+    predicted_advantages: list[float] = []
+    behavior_advantages: list[float] = []
+    oracle_advantages: list[float] = []
     with torch.no_grad():
         for group in groups:
             features = torch.tensor(
                 [example.features for example in group], dtype=torch.float32, device=device
             )
             predictions = model(features).cpu().tolist()
-            targets = [example.mean_final_floor for example in group]
+            targets = [example.mean_advantage for example in group]
             absolute_error += sum(
-                abs(prediction * config.final_floor_scale - target)
+                abs(prediction * config.advantage_scale - target)
                 for prediction, target in zip(predictions, targets)
             )
             examples_seen += len(group)
@@ -538,9 +614,9 @@ def evaluate_map_action_value_model(
                 raise ValueError("map-action group has no behavior action")
             top1_oracle_matches += int(predicted_index == oracle_index)
             behavior_oracle_matches += int(behavior_index == oracle_index)
-            predicted_floors.append(targets[predicted_index])
-            behavior_floors.append(targets[behavior_index])
-            oracle_floors.append(targets[oracle_index])
+            predicted_advantages.append(targets[predicted_index])
+            behavior_advantages.append(targets[behavior_index])
+            oracle_advantages.append(targets[oracle_index])
             for left in range(len(group)):
                 for right in range(left + 1, len(group)):
                     target_difference = targets[left] - targets[right]
@@ -556,20 +632,20 @@ def evaluate_map_action_value_model(
     return {
         "groups": float(group_count),
         "examples": float(examples_seen),
-        "floor_mae": absolute_error / examples_seen,
+        "advantage_mae": absolute_error / examples_seen,
         "top1_oracle_match": top1_oracle_matches / group_count,
         "behavior_oracle_match": behavior_oracle_matches / group_count,
         "pairwise_accuracy": pairwise_correct / pairwise_total if pairwise_total else float("nan"),
         "pairwise_examples": float(pairwise_total),
-        "predicted_action_mean_final_floor": sum(predicted_floors) / group_count,
-        "behavior_action_mean_final_floor": sum(behavior_floors) / group_count,
-        "oracle_action_mean_final_floor": sum(oracle_floors) / group_count,
-        "model_minus_behavior_final_floor": (
-            sum(predicted_floors) - sum(behavior_floors)
+        "predicted_action_mean_advantage": sum(predicted_advantages) / group_count,
+        "behavior_action_mean_advantage": sum(behavior_advantages) / group_count,
+        "oracle_action_mean_advantage": sum(oracle_advantages) / group_count,
+        "model_minus_behavior_mean_advantage": (
+            sum(predicted_advantages) - sum(behavior_advantages)
         )
         / group_count,
-        "oracle_minus_behavior_final_floor": (
-            sum(oracle_floors) - sum(behavior_floors)
+        "oracle_minus_behavior_mean_advantage": (
+            sum(oracle_advantages) - sum(behavior_advantages)
         )
         / group_count,
     }
@@ -603,6 +679,7 @@ def train_map_action_value_model(
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-4)
     generator = torch.Generator(device="cpu").manual_seed(seed)
     metrics: dict[str, Any] = {
+        "label_mode": MAP_ACTION_LABEL_MODE,
         "splits": {
             name: {
                 "examples": len(values),
@@ -631,7 +708,7 @@ def train_map_action_value_model(
             )
             targets = torch.tensor(
                 [
-                    example.mean_final_floor / active_config.final_floor_scale
+                    example.mean_advantage / active_config.advantage_scale
                     for group in batch_groups
                     for example in group
                 ],
@@ -658,9 +735,9 @@ def train_map_action_value_model(
             device=target_device,
         )
         selection = (
-            validation["model_minus_behavior_final_floor"]
+            validation["model_minus_behavior_mean_advantage"]
             + validation["top1_oracle_match"]
-            - validation["floor_mae"] / active_config.final_floor_scale
+            - validation["advantage_mae"] / active_config.advantage_scale
         )
         metrics["epochs"].append(
             {
@@ -705,6 +782,7 @@ def save_map_action_value_checkpoint(
         {
             "protocol": "a20-map-action-value",
             "schema_version": 1,
+            "label_mode": MAP_ACTION_LABEL_MODE,
             "config": encoder.config.to_dict(),
             "feature_dimension": encoder.dimension,
             "model_state_dict": model.state_dict(),
@@ -733,6 +811,7 @@ def load_map_action_value_model(
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
     return model, encoder, {
+        "label_mode": checkpoint.get("label_mode"),
         "metrics": dict(checkpoint.get("metrics") or {}),
         "metadata": dict(checkpoint.get("metadata") or {}),
     }

@@ -31,6 +31,7 @@ def audit_map_policy_evaluations(
     expected_replication_range_name: str = "map_value_replication",
     expected_trained_acts: frozenset[int] | None = None,
     expected_trained_floor_range: tuple[int, int] | None = None,
+    expected_label_mode: str | None = None,
 ) -> dict[str, Any]:
     formal = _read_json(formal_path)
     replication = _read_json(replication_path)
@@ -90,6 +91,8 @@ def audit_map_policy_evaluations(
             else:
                 if trained_floor_range != expected_trained_floor_range:
                     errors.append(f"{name}: map policy trained floor range differs")
+        if expected_label_mode is not None and payload.get("map_policy_label_mode") != expected_label_mode:
+            errors.append(f"{name}: map policy label mode differs")
         for role in ("candidate", "reference"):
             summary = dict(payload.get(role, {}).get("summary") or {})
             for field in _SAFETY_FIELDS:

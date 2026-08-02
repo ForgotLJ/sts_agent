@@ -68,6 +68,32 @@ def _aggregate_telemetry(policies: list[Any]) -> dict[str, float]:
     return totals
 
 
+def _decision_events(policies: list[A20MapActionValuePolicy]) -> list[dict[str, Any]]:
+    return [
+        event
+        for policy in policies
+        for event in policy.decision_events
+    ]
+
+
+def _decision_profile(events: list[dict[str, Any]]) -> dict[str, dict[str, float | int]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for event in events:
+        key = f"act-{int(event['act'])}/floor-{int(event['floor'])}"
+        grouped.setdefault(key, []).append(event)
+    profile: dict[str, dict[str, float | int]] = {}
+    for key, values in sorted(grouped.items()):
+        profile[key] = {
+            "decisions": len(values),
+            "would_override": sum(bool(value["would_override"]) for value in values),
+            "applied_override": sum(bool(value["applied_override"]) for value in values),
+            "mean_predicted_best_advantage": statistics.fmean(
+                float(value["predicted_best_advantage"]) for value in values
+            ),
+        }
+    return profile
+
+
 def _quantiles(values: list[float]) -> dict[str, float]:
     if not values:
         return {name: 0.0 for name in ("p50", "p75", "p80", "p90", "p95", "p99", "max")}
@@ -191,6 +217,13 @@ def main() -> int:
         )
 
     def candidate_factory(_: int, __: int) -> A20MapActionValuePolicy:
+        return _candidate_factory(_, __, None)
+
+    def _candidate_factory(
+        episode_policy_seed: int,
+        episode_index: int,
+        episode_seed: int | None,
+    ) -> A20MapActionValuePolicy:
         card_policy = A20CloneValueCardRewardPolicy(
             card_model,
             override_margin=args.card_override_margin,
@@ -203,10 +236,18 @@ def main() -> int:
             record_only=args.record_only,
             allowed_acts=trained_acts,
             allowed_floor_range=trained_floor_range,
+            episode_seed=episode_seed,
         )
         candidate_card_policies.append(card_policy)
         candidate_map_policies.append(map_policy)
         return map_policy
+
+    def seed_aware_candidate_factory(
+        episode_policy_seed: int,
+        episode_index: int,
+        episode_seed: int,
+    ) -> A20MapActionValuePolicy:
+        return _candidate_factory(episode_policy_seed, episode_index, episode_seed)
 
     def reference_factory(_: int, __: int) -> A20CloneValueCardRewardPolicy:
         card_policy = A20CloneValueCardRewardPolicy(
@@ -223,6 +264,7 @@ def main() -> int:
         policy_seed=args.policy_seed,
         max_steps=args.max_steps,
         bootstrap_samples=args.bootstrap_samples,
+        seed_aware_policy_factory=seed_aware_candidate_factory,
     )
     reference_summary = evaluate_full_runs(
         environment_factory,
@@ -240,6 +282,7 @@ def main() -> int:
         for policy in candidate_map_policies
         for advantage in policy.best_advantages
     ]
+    map_events = _decision_events(candidate_map_policies)
     map_decisions = map_telemetry.get("map_decisions", 0.0)
     map_overrides = map_telemetry.get("overrides", 0.0)
     candidate = {
@@ -265,6 +308,7 @@ def main() -> int:
         "map_policy_trained_floor_range": (
             list(trained_floor_range) if trained_floor_range is not None else None
         ),
+        "map_policy_label_mode": map_checkpoint_metadata.get("label_mode"),
         "seed_range": [args.seed_start, args.seed_start + args.seed_count - 1],
         "seed_range_name": args.seed_range_name,
         "seed_count": args.seed_count,
@@ -289,7 +333,9 @@ def main() -> int:
             ),
             "mean_best_advantage": statistics.fmean(map_advantages) if map_advantages else 0.0,
             "best_advantage_quantiles": _quantiles(map_advantages),
+            "decision_profile": _decision_profile(map_events),
         },
+        "candidate_map_decision_events": map_events,
         "candidate_card_telemetry": _aggregate_telemetry(candidate_card_policies),
         "reference_card_telemetry": _aggregate_telemetry(reference_card_policies),
         "paired_difference": paired_evaluation_difference(

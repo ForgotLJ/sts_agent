@@ -26,6 +26,7 @@ def main() -> int:
     parser.add_argument("--map-checkpoint-sha256", required=True)
     parser.add_argument("--card-checkpoint-sha256", required=True)
     parser.add_argument("--quantile", choices=("p50", "p75", "p80", "p90", "p95"), default="p80")
+    parser.add_argument("--label-mode")
     args = parser.parse_args()
     if args.output.exists():
         raise FileExistsError(f"margin output already exists: {args.output}")
@@ -35,6 +36,7 @@ def main() -> int:
         expected_map_checkpoint_sha256=args.map_checkpoint_sha256,
         expected_card_checkpoint_sha256=args.card_checkpoint_sha256,
         quantile=args.quantile,
+        expected_label_mode=args.label_mode,
     )
     result["profile"] = {
         "path": str(args.profile.resolve()),

@@ -66,7 +66,7 @@ python scripts/train-map-action-value.py \
   --epochs 60 --groups-per-batch 32 --learning-rate 0.0003 --seed 17 --device cuda
 ```
 
-The held-out metrics are counterfactual ranking diagnostics, not proof that the policy improves a full run. In particular, the reported model-minus-behavior final floor is measured on fixed rollout labels and must not be substituted for online evaluation.
+The held-out metrics are counterfactual ranking diagnostics, not proof that the policy improves a full run. The current V5 label is `behavior_relative_final_floor_advantage`: each candidate target is its mean final floor minus the mean final floor of the behavior action in the same decision group. These fixed-rollout advantages must not be substituted for online evaluation.
 
 ## Online Protocol
 
@@ -121,3 +121,20 @@ python scripts/run-a20-map-action-stage.py \
 The output directory must not already exist. A stopped stage is a valid result; inspect `stage.json` and its referenced artifacts rather than rerunning a failed seed range with modified settings.
 
 Use `--dry-run` with the same three required paths to inspect the fixed seed ranges, devices, training settings, and promotion gates without accessing the checkpoint, pilot corpus, or simulator.
+
+## V5 Advantage-Label Stage
+
+V4 was rejected after its first-layer map overrides produced a non-positive online effect. V5 changes the supervision target rather than merely lowering the override threshold: it trains on candidate advantage relative to the observed behavior action, collects 1,024 Act 1 floor-0 decisions with 8 particles per action, and freezes a p95 margin from a disjoint record-only profile. The V5 stage has fresh, non-overlapping ranges and stops at the first failed gate:
+
+```bash
+python scripts/run-a20-map-action-stage.py \
+  --stage-version v5 \
+  --pilot /scratch/sts_agent/experiments/map_counterfactual_act1_pilot \
+  --output /scratch/sts_agent/experiments/map_action_stage_v5 \
+  --card-checkpoint /scratch/sts_agent/experiments/a20_online_value_ironclad_v3/a20-online-value-IRONCLAD.pt \
+  --rollout-device cpu \
+  --training-device cuda \
+  --evaluation-device cpu
+```
+
+The runner records per-decision evidence in `candidate_map_decision_events`, including episode seed, floor, baseline and selected actions, predicted values, and whether an override was only proposed or actually applied. It must be run once from a fresh output directory; do not reuse V4 formal or replication seeds, and do not promote V5 unless its own audit reports `replicated_improved`.

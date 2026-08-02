@@ -16,6 +16,7 @@ from torch import nn
 
 from sts_env.training.map_action_value import (
     A20MapActionValuePolicy,
+    MapActionValueConfig,
     MapActionValueExample,
     MapActionFeatureEncoder,
     load_map_action_value_examples,
@@ -189,6 +190,17 @@ class MapActionValueTests(unittest.TestCase):
         self.assertNotEqual(left, right)
         self.assertTrue(all(torch.isfinite(torch.tensor(left))))
 
+    def test_advantage_encoder_includes_behavior_action_identity(self) -> None:
+        encoder = MapActionFeatureEncoder(
+            MapActionValueConfig(include_behavior_action=True)
+        )
+        with self.assertRaisesRegex(ValueError, "behavior action"):
+            encoder.encode(map_observation(), LEFT)
+        right_against_left = encoder.encode(map_observation(), RIGHT, LEFT)
+        right_against_right = encoder.encode(map_observation(), RIGHT, RIGHT)
+        self.assertGreater(encoder.dimension, MapActionFeatureEncoder().dimension)
+        self.assertNotEqual(right_against_left, right_against_right)
+
     def test_loader_splits_by_root_seed_without_overlap(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -200,6 +212,18 @@ class MapActionValueTests(unittest.TestCase):
         self.assertFalse(root_seeds["train"] & root_seeds["validation"])
         self.assertFalse(root_seeds["train"] & root_seeds["test"])
         self.assertFalse(root_seeds["validation"] & root_seeds["test"])
+
+    def test_loader_labels_candidates_relative_to_behavior_action(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_corpus(root, records=8)
+            examples, _ = load_map_action_value_examples(root)
+        behavior = [example for example in examples if example.root_seed == 0 and example.is_behavior_action]
+        alternative = [example for example in examples if example.root_seed == 0 and not example.is_behavior_action]
+        self.assertEqual(len(behavior), 1)
+        self.assertEqual(len(alternative), 1)
+        self.assertEqual(behavior[0].mean_advantage, 0.0)
+        self.assertEqual(alternative[0].mean_advantage, 9.0)
 
     def test_multiple_decisions_from_one_root_seed_stay_in_one_split(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -222,9 +246,17 @@ class MapActionValueTests(unittest.TestCase):
             MapActionFeatureEncoder(),
             fallback=FirstLegalPolicy(),
             override_margin=0.5,
+            episode_seed=12345,
         )
         self.assertEqual(policy.select(FakeMapEnvironment()), RIGHT)
         self.assertEqual(policy.telemetry()["overrides"], 1)
+        event = policy.decision_events[0]
+        self.assertEqual(event["episode_seed"], 12345)
+        self.assertEqual(event["decision_index"], 0)
+        self.assertEqual(event["baseline_action"]["target_x"], LEFT.target_x)
+        self.assertEqual(event["selected_action"]["target_x"], RIGHT.target_x)
+        self.assertTrue(event["would_override"])
+        self.assertTrue(event["applied_override"])
         record_only = A20MapActionValuePolicy(
             RightRouteValueModel(),
             MapActionFeatureEncoder(),
@@ -315,6 +347,7 @@ class MapActionValueTests(unittest.TestCase):
                     "16",
                     "--device",
                     "cpu",
+                    "--include-behavior-action",
                 ],
                 check=False,
                 capture_output=True,
@@ -328,6 +361,11 @@ class MapActionValueTests(unittest.TestCase):
         self.assertEqual(payload["protocol"], "a20-map-action-value-offline-evaluation")
         self.assertEqual(payload["trained_acts"], [1])
         self.assertEqual(payload["trained_floor_range"], [3, 3])
+        self.assertEqual(
+            payload["label_mode"],
+            "behavior_relative_final_floor_advantage",
+        )
+        self.assertTrue(payload["config"]["include_behavior_action"])
         self.assertGreater(payload["metrics"]["test"]["examples"], 0.0)
 
 
