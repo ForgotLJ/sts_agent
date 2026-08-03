@@ -82,6 +82,142 @@ def select_profile_margin(
     }
 
 
+def select_profile_margin_by_coverage(
+    profile: dict[str, Any],
+    *,
+    expected_map_checkpoint_sha256: str,
+    expected_card_checkpoint_sha256: str,
+    target_override_rate: float,
+    minimum_override_rate: float,
+    maximum_override_rate: float,
+    expected_range_name: str = "map_value_profile",
+    expected_trained_acts: frozenset[int] | None = None,
+    expected_trained_floor_range: tuple[int, int] | None = None,
+    expected_label_mode: str | None = None,
+) -> dict[str, Any]:
+    if not 0.0 < minimum_override_rate <= target_override_rate <= maximum_override_rate < 1.0:
+        raise ValueError("map override-rate calibration bounds are invalid")
+    errors: list[str] = []
+    if expected_range_name not in MAP_ACTION_EVALUATION_RANGE_NAMES:
+        raise ValueError(f"unknown map profile range: {expected_range_name}")
+    if profile.get("protocol") != _EVALUATION_PROTOCOL:
+        errors.append("profile protocol differs")
+    if not profile.get("record_only"):
+        errors.append("profile is not record-only")
+    _require_range(profile, expected_range_name, errors)
+    _require_checkpoint(profile, "map_checkpoint", expected_map_checkpoint_sha256, errors)
+    _require_checkpoint(profile, "card_checkpoint", expected_card_checkpoint_sha256, errors)
+    _require_trained_acts(profile, expected_trained_acts, errors)
+    _require_trained_floor_range(profile, expected_trained_floor_range, errors)
+    _require_label_mode(profile, expected_label_mode, errors)
+    _require_safety(profile, errors)
+    events = list(profile.get("candidate_map_decision_events") or [])
+    telemetry = dict(profile.get("candidate_map_telemetry") or {})
+    for field in ("model_failures", "unscorable_baselines"):
+        if float(telemetry.get(field, 0.0)) != 0.0:
+            errors.append(f"profile map telemetry {field} is nonzero")
+    scored = [event for event in events if event.get("event_type", "scored") == "scored"]
+    if any(bool(event.get("applied_override")) for event in scored):
+        errors.append("record-only profile applied a map override")
+    advantages: list[float] = []
+    for event in scored:
+        try:
+            advantage = float(event["predicted_best_advantage"])
+        except (KeyError, TypeError, ValueError) as error:
+            errors.append(f"profile event advantage is invalid: {error}")
+            continue
+        if not math.isfinite(advantage):
+            errors.append("profile event advantage is non-finite")
+        elif advantage > 0.0:
+            advantages.append(advantage)
+    if not scored:
+        errors.append("profile has no scored map decisions")
+    if not advantages:
+        errors.append("profile has no positive map advantages")
+    if errors:
+        raise ValueError("invalid map coverage profile: " + "; ".join(errors))
+    candidates = sorted(set(advantages), reverse=True)
+    selected: tuple[float, int, float] | None = None
+    for margin in candidates:
+        count = sum(advantage >= margin for advantage in advantages)
+        rate = count / len(scored)
+        if not minimum_override_rate <= rate <= maximum_override_rate:
+            continue
+        trial = (margin, count, rate)
+        if selected is None or (
+            abs(trial[2] - target_override_rate), -trial[0]
+        ) < (
+            abs(selected[2] - target_override_rate), -selected[0]
+        ):
+            selected = trial
+    if selected is None:
+        raise ValueError("profile cannot satisfy the frozen map override-rate interval")
+    margin, count, rate = selected
+    return {
+        "protocol": "a20-map-action-coverage-margin-selection",
+        "schema_version": 1,
+        "override_margin": margin,
+        "target_override_rate": target_override_rate,
+        "minimum_override_rate": minimum_override_rate,
+        "maximum_override_rate": maximum_override_rate,
+        "profile_scored_map_decisions": len(scored),
+        "profile_positive_advantages": len(advantages),
+        "profile_override_count": count,
+        "profile_override_rate": rate,
+        "map_checkpoint_sha256": expected_map_checkpoint_sha256,
+        "card_checkpoint_sha256": expected_card_checkpoint_sha256,
+        "profile_seed_range": profile["seed_range"],
+        "profile_seed_range_name": profile["seed_range_name"],
+    }
+
+
+def map_override_coverage_gate(
+    evaluation: dict[str, Any],
+    *,
+    minimum_override_rate: float,
+    maximum_override_rate: float,
+    minimum_overrides: int,
+) -> dict[str, Any]:
+    if (
+        not 0.0 <= minimum_override_rate <= maximum_override_rate <= 1.0
+        or minimum_overrides <= 0
+    ):
+        raise ValueError("map override coverage gate bounds are invalid")
+    telemetry = dict(evaluation.get("candidate_map_telemetry") or {})
+    errors: list[str] = []
+    try:
+        decisions = int(telemetry["map_decisions"])
+        overrides = int(telemetry["overrides"])
+    except (KeyError, TypeError, ValueError) as error:
+        errors.append(f"map override telemetry is invalid: {error}")
+        decisions = 0
+        overrides = 0
+    rate = overrides / decisions if decisions else 0.0
+    if decisions <= 0:
+        errors.append("evaluation has no scored map decisions")
+    if overrides < minimum_overrides:
+        errors.append("evaluation has too few applied map overrides")
+    if not minimum_override_rate <= rate <= maximum_override_rate:
+        errors.append("evaluation map override rate is outside the frozen interval")
+    for field in ("model_failures", "unscorable_baselines"):
+        if float(telemetry.get(field, 0.0)) != 0.0:
+            errors.append(f"evaluation map telemetry {field} is nonzero")
+    return {
+        "protocol": "a20-map-action-override-coverage-gate",
+        "schema_version": 1,
+        "minimum_override_rate": minimum_override_rate,
+        "maximum_override_rate": maximum_override_rate,
+        "minimum_overrides": minimum_overrides,
+        "map_decisions": decisions,
+        "overrides": overrides,
+        "override_rate": rate,
+        "model_failures": float(telemetry.get("model_failures", 0.0)),
+        "unscorable_baselines": float(telemetry.get("unscorable_baselines", 0.0)),
+        "passed": not errors,
+        "errors": errors,
+    }
+
+
 def map_evaluation_gate(
     evaluation: dict[str, Any],
     *,

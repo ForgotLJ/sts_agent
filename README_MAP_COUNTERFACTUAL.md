@@ -138,3 +138,20 @@ python scripts/run-a20-map-action-stage.py \
 ```
 
 The runner records per-decision evidence in `candidate_map_decision_events`, including episode seed, floor, baseline and selected actions, predicted values, and whether an override was only proposed or actually applied. It must be run once from a fresh output directory; do not reuse V4 formal or replication seeds, and do not promote V5 unless its own audit reports `replicated_improved`.
+
+## V6 Calibrated-Margin Evaluation
+
+V5 was safe but its p95 margin produced too few applied map overrides for a meaningful formal comparison. V6 does not collect new data or retrain the model. It freezes the V5 checkpoint, first creates a fresh 512-seed record-only profile, then selects the margin whose predicted override rate is within the pre-registered 5%-10% interval and closest to 7.5%; ties prefer the larger margin. A 64-seed smoke must contain at least two applied overrides and remain within the 3%-15% operational interval before formal evaluation can start.
+
+V6 also records every map screen: scored decisions and explicit skip reasons for insufficient candidates, out-of-scope acts/floors, invalid baselines, and model failures. This prevents an absent decision event from being misinterpreted as a missing episode.
+
+```bash
+python scripts/run-a20-map-action-calibration-stage.py \
+  --source-stage /scratch/sts_agent/experiments/map_action_stage_v5 \
+  --map-checkpoint /scratch/sts_agent/experiments/map_action_stage_v5/a20-map-action-value-IRONCLAD.pt \
+  --card-checkpoint /scratch/sts_agent/experiments/a20_online_value_ironclad_v3/a20-online-value-IRONCLAD.pt \
+  --output /scratch/sts_agent/experiments/map_action_stage_v6 \
+  --evaluation-device cpu
+```
+
+It validates the frozen V5 checkpoint SHA-256, V5 label mode, and behavior-action feature contract before evaluating. The new profile, smoke, formal, and replication ranges are disjoint from every prior stage. Do not run V6 until this source version is committed and pushed; do not run an additional V5 evaluation.

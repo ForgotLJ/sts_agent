@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import json
 from pathlib import Path
 import statistics
@@ -76,19 +77,29 @@ def _decision_events(policies: list[A20MapActionValuePolicy]) -> list[dict[str, 
     ]
 
 
-def _decision_profile(events: list[dict[str, Any]]) -> dict[str, dict[str, float | int]]:
+def _decision_profile(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     grouped: dict[str, list[dict[str, Any]]] = {}
     for event in events:
         key = f"act-{int(event['act'])}/floor-{int(event['floor'])}"
         grouped.setdefault(key, []).append(event)
-    profile: dict[str, dict[str, float | int]] = {}
+    profile: dict[str, dict[str, Any]] = {}
     for key, values in sorted(grouped.items()):
+        scored = [value for value in values if value.get("event_type", "scored") == "scored"]
+        skip_reasons = Counter(
+            str(value.get("skip_reason") or "unknown")
+            for value in values
+            if value.get("event_type") == "skipped"
+        )
         profile[key] = {
-            "decisions": len(values),
-            "would_override": sum(bool(value["would_override"]) for value in values),
-            "applied_override": sum(bool(value["applied_override"]) for value in values),
-            "mean_predicted_best_advantage": statistics.fmean(
-                float(value["predicted_best_advantage"]) for value in values
+            "map_screens": len(values),
+            "scored_decisions": len(scored),
+            "would_override": sum(bool(value["would_override"]) for value in scored),
+            "applied_override": sum(bool(value["applied_override"]) for value in scored),
+            "skipped_by_reason": dict(sorted(skip_reasons.items())),
+            "mean_predicted_best_advantage": (
+                statistics.fmean(float(value["predicted_best_advantage"]) for value in scored)
+                if scored
+                else 0.0
             ),
         }
     return profile

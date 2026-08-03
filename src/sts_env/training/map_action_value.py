@@ -362,7 +362,9 @@ class A20MapActionValuePolicy:
         self._allowed_acts = normalized_acts
         self._allowed_floor_range = normalized_floor_range
         self._episode_seed = episode_seed
-        self._decision_index = 0
+        self._map_screen_index = 0
+        self._map_screens_observed = 0
+        self._insufficient_candidate_map_screens = 0
         self._map_decisions = 0
         self._untrained_act_map_decisions = 0
         self._untrained_floor_map_decisions = 0
@@ -391,6 +393,8 @@ class A20MapActionValuePolicy:
     def telemetry(self) -> dict[str, float | int]:
         return {
             "map_decisions": self._map_decisions,
+            "map_screens_observed": self._map_screens_observed,
+            "insufficient_candidate_map_screens": self._insufficient_candidate_map_screens,
             "untrained_act_map_decisions": self._untrained_act_map_decisions,
             "untrained_floor_map_decisions": self._untrained_floor_map_decisions,
             "candidate_actions_scored": self._candidate_actions_scored,
@@ -424,24 +428,56 @@ class A20MapActionValuePolicy:
     def _select_map_action(self, observation: Observation, baseline: Action) -> Action:
         if observation.phase is not Phase.MAP:
             return baseline
+        screen_index = self._map_screen_index
+        self._map_screen_index += 1
+        self._map_screens_observed += 1
         candidates = tuple(
             action
             for action in observation.legal_actions
             if action.kind is ActionKind.CHOOSE_MAP_NODE
         )
         if len(candidates) < 2:
+            self._insufficient_candidate_map_screens += 1
+            self._record_map_skip(
+                observation,
+                baseline,
+                screen_index,
+                candidates,
+                "fewer_than_two_candidates",
+            )
             return baseline
         if self._allowed_acts is not None and observation.act not in self._allowed_acts:
             self._untrained_act_map_decisions += 1
+            self._record_map_skip(
+                observation,
+                baseline,
+                screen_index,
+                candidates,
+                "untrained_act",
+            )
             return baseline
         if self._allowed_floor_range is not None and not (
             self._allowed_floor_range[0] <= observation.floor <= self._allowed_floor_range[1]
         ):
             self._untrained_floor_map_decisions += 1
+            self._record_map_skip(
+                observation,
+                baseline,
+                screen_index,
+                candidates,
+                "untrained_floor",
+            )
             return baseline
         self._map_decisions += 1
         if baseline not in candidates:
             self._unscorable_baselines += 1
+            self._record_map_skip(
+                observation,
+                baseline,
+                screen_index,
+                candidates,
+                "baseline_not_candidate",
+            )
             return baseline
         try:
             device = next(self._model.parameters()).device
@@ -453,11 +489,26 @@ class A20MapActionValuePolicy:
             self._model.eval()
             with torch.no_grad():
                 values = self._model(features).detach().cpu().tolist()
-        except Exception:
+        except Exception as error:
             self._model_failures += 1
+            self._record_map_skip(
+                observation,
+                baseline,
+                screen_index,
+                candidates,
+                "model_exception",
+                error_type=type(error).__name__,
+            )
             return baseline
         if len(values) != len(candidates) or not all(math.isfinite(value) for value in values):
             self._model_failures += 1
+            self._record_map_skip(
+                observation,
+                baseline,
+                screen_index,
+                candidates,
+                "non_finite_model_output",
+            )
             return baseline
         self._candidate_actions_scored += len(candidates)
         baseline_index = candidates.index(baseline)
@@ -466,8 +517,9 @@ class A20MapActionValuePolicy:
         best = candidates[best_index]
         would_override = best != baseline and advantage >= self._override_margin
         event = {
+            "event_type": "scored",
             "episode_seed": self._episode_seed,
-            "decision_index": self._decision_index,
+            "decision_index": screen_index,
             "act": observation.act,
             "floor": observation.floor,
             "candidate_count": len(candidates),
@@ -481,7 +533,6 @@ class A20MapActionValuePolicy:
             "applied_override": False,
         }
         self._decision_events.append(event)
-        self._decision_index += 1
         self._best_advantages.append(advantage)
         if best == baseline:
             self._value_best_matches_heuristic += 1
@@ -493,6 +544,33 @@ class A20MapActionValuePolicy:
         event["selected_action"] = best.to_dict()
         event["applied_override"] = True
         return best
+
+    def _record_map_skip(
+        self,
+        observation: Observation,
+        baseline: Action,
+        screen_index: int,
+        candidates: tuple[Action, ...],
+        reason: str,
+        *,
+        error_type: str | None = None,
+    ) -> None:
+        event: dict[str, Any] = {
+            "event_type": "skipped",
+            "skip_reason": reason,
+            "episode_seed": self._episode_seed,
+            "decision_index": screen_index,
+            "act": observation.act,
+            "floor": observation.floor,
+            "candidate_count": len(candidates),
+            "baseline_action": baseline.to_dict(),
+            "selected_action": baseline.to_dict(),
+            "would_override": False,
+            "applied_override": False,
+        }
+        if error_type is not None:
+            event["error_type"] = error_type
+        self._decision_events.append(event)
 
 
 def load_map_action_value_examples(

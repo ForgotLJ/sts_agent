@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import unittest
 
-from sts_env.training.map_action_stage import map_evaluation_gate, select_profile_margin
+from sts_env.training.map_action_stage import (
+    map_evaluation_gate,
+    map_override_coverage_gate,
+    select_profile_margin,
+    select_profile_margin_by_coverage,
+)
 
 
 MAP_SHA = "a" * 64
@@ -127,6 +132,52 @@ class MapActionStageTests(unittest.TestCase):
         )
         self.assertFalse(result["passed"])
         self.assertIn("effect gate did not pass", result["errors"])
+
+    def test_selects_margin_for_a_frozen_override_rate(self) -> None:
+        profile = evaluation(
+            "map_act1_value_profile_v6",
+            2_360_000,
+            512,
+            record_only=True,
+        )
+        profile["candidate_map_decision_events"] = [
+            {
+                "event_type": "scored",
+                "predicted_best_advantage": float(index),
+                "applied_override": False,
+            }
+            for index in range(1, 101)
+        ]
+        selected = select_profile_margin_by_coverage(
+            profile,
+            expected_map_checkpoint_sha256=MAP_SHA,
+            expected_card_checkpoint_sha256=CARD_SHA,
+            target_override_rate=0.075,
+            minimum_override_rate=0.05,
+            maximum_override_rate=0.10,
+            expected_range_name="map_act1_value_profile_v6",
+        )
+        self.assertEqual(selected["profile_override_count"], 7)
+        self.assertEqual(selected["profile_override_rate"], 0.07)
+        self.assertEqual(selected["override_margin"], 94.0)
+
+    def test_coverage_gate_requires_multiple_interventions(self) -> None:
+        smoke = evaluation("map_act1_value_smoke_v6", 2_361_000, 64)
+        smoke["candidate_map_telemetry"] = {"map_decisions": 64, "overrides": 4}
+        result = map_override_coverage_gate(
+            smoke,
+            minimum_override_rate=0.03,
+            maximum_override_rate=0.15,
+            minimum_overrides=2,
+        )
+        self.assertTrue(result["passed"])
+        sparse = map_override_coverage_gate(
+            smoke,
+            minimum_override_rate=0.03,
+            maximum_override_rate=0.15,
+            minimum_overrides=5,
+        )
+        self.assertFalse(sparse["passed"])
 
 
 if __name__ == "__main__":

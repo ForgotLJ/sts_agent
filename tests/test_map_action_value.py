@@ -293,6 +293,24 @@ class MapActionValueTests(unittest.TestCase):
         self.assertEqual(action, LEFT)
         self.assertEqual(policy.telemetry()["map_decisions"], 0)
         self.assertEqual(policy.telemetry()["untrained_floor_map_decisions"], 1)
+        self.assertEqual(policy.decision_events[0]["event_type"], "skipped")
+        self.assertEqual(policy.decision_events[0]["skip_reason"], "untrained_floor")
+
+    def test_policy_records_map_screens_without_a_choice(self) -> None:
+        policy = A20MapActionValuePolicy(
+            RightRouteValueModel(),
+            MapActionFeatureEncoder(),
+            fallback=FirstLegalPolicy(),
+            override_margin=0.0,
+            episode_seed=9,
+        )
+        action = policy.select(FakeMapEnvironment(replace(map_observation(), legal_actions=(LEFT,))))
+        self.assertEqual(action, LEFT)
+        self.assertEqual(policy.telemetry()["map_screens_observed"], 1)
+        self.assertEqual(policy.telemetry()["insufficient_candidate_map_screens"], 1)
+        event = policy.decision_events[0]
+        self.assertEqual(event["episode_seed"], 9)
+        self.assertEqual(event["skip_reason"], "fewer_than_two_candidates")
 
     def test_small_training_and_checkpoint_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

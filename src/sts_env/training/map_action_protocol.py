@@ -104,6 +104,30 @@ MAP_ACTION_RANGES = (
         512,
         "Act 1 advantage-label map policy independent replication",
     ),
+    MapActionSeedRange(
+        "map_act1_value_profile_v6",
+        2_360_000,
+        512,
+        "Act 1 calibrated-margin map profile",
+    ),
+    MapActionSeedRange(
+        "map_act1_value_smoke_v6",
+        2_361_000,
+        64,
+        "Act 1 calibrated-margin map policy smoke",
+    ),
+    MapActionSeedRange(
+        "map_act1_value_formal_v6",
+        2_362_000,
+        512,
+        "Act 1 calibrated-margin map policy formal evaluation",
+    ),
+    MapActionSeedRange(
+        "map_act1_value_replication_v6",
+        2_363_000,
+        512,
+        "Act 1 calibrated-margin map policy independent replication",
+    ),
 )
 
 MAP_ACTION_COLLECTION_RANGE_NAMES = frozenset(
@@ -132,6 +156,10 @@ MAP_ACTION_EVALUATION_RANGE_NAMES = frozenset(
         "map_act1_value_smoke_v5",
         "map_act1_value_formal_v5",
         "map_act1_value_replication_v5",
+        "map_act1_value_profile_v6",
+        "map_act1_value_smoke_v6",
+        "map_act1_value_formal_v6",
+        "map_act1_value_replication_v6",
     }
 )
 
